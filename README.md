@@ -1,6 +1,6 @@
 # Centennial KAPA — Airport Simulator
 
-A single-file Three.js airport simulation built around a stylized Centennial Airport (KAPA) layout. Three runways, parallel and crosswind operations, procedural pavement, OSM-derived buildings, a rolling five-aircraft fixed-wing population, and two independent helicopters are sequenced by a tower decision loop. Departures leave the airspace and are replaced by new unique-tail inbound aircraft. Clearances and pilot calls are spoken locally through Kokoro-82M, with Piper retained as a fallback, and proxied by the bundled web server.
+A single-file Three.js airport simulation built around a stylized Centennial Airport (KAPA) layout. Three runways, parallel and crosswind operations, procedural pavement, OSM-derived buildings, and live ADS-B traffic are sequenced by a tower decision loop. Airborne tracks follow OpenSky; landings are handed to the sim’s taxi-in loop when a stand is free. A five-aircraft scripted fleet and two helicopters exist only with `?live=0`. Clearances and pilot calls are spoken locally through Kokoro-82M, with Piper retained as a fallback, and proxied by the bundled web server.
 
 This is a visual simulation, not a navigation or flight-planning tool.
 
@@ -54,7 +54,7 @@ Open `http://localhost:8123/airport-sim.html`. Replace `localhost` with the mach
 Opening the HTML directly with `file://` will not work because the simulator imports ES modules and calls the local TTS/chat endpoints. For a fast offline-style demo without Ollama, use:
 
 ```text
-http://localhost:8123/airport-sim.html?scenario=fixed&ai=rules
+http://localhost:8123/airport-sim.html?scenario=fixed&ai=rules&live=0
 ```
 
 ## Airfield Layout
@@ -80,7 +80,7 @@ All six runway ends have their own hold pad, connector, lineup route, departure 
 
 The field includes the OSM taxiway network, the main apron and gate lane at `z = -245`, hangar rows, the terminal area, and the Heliplex helipads. Runway numbers, threshold bars, aiming bars, centerlines, edge lights, approach lights, taxiway lights, apron lamps, hold-short markings and signs, apron edge markings, hangar door panels, window bands, roof lines, and vents are generated procedurally.
 
-The control tower, fuel store, fuel pump, radar dish, windsock, PAPI, and one hold-short sign are reused from the supplied low-poly GLB. The GLB's original runway, buildings, static aircraft, and fencing are removed before those props are repositioned for KAPA.
+The control tower, fuel store, fuel pump, radar dish, windsock, PAPI, and one hold-short sign are reused from the supplied low-poly GLB. The GLB's original runway, buildings, static aircraft, and fencing are removed before those props are repositioned for KAPA. Three tugs and three fuel bowsers run small service loops on the west, center, and east apron, clear of the gate lane.
 
 ## Runway Selection
 
@@ -89,7 +89,7 @@ Weather chooses one primary runway from `17L`, `35R`, `10`, and `28`, then adds 
 - `?scenario=random` picks a runway plan and randomizes aircraft states.
 - `?scenario=fixed` uses wind `185°` at `8 kt`, with `17L` and `17R` active.
 
-During a run the field also changes wind on its own. Every 75–150 seconds the simulator tries a shift to a different primary runway, with a small heading offset and a new speed. The shift waits if anyone is taxiing, lining up, taking off, landing, on approach, or occupying a runway. Airborne traffic that was assigned a now-closed runway is cleared to request the new active set. Tower announces the new wind, the HUD log records it, and the windsock turns with the wind. `window.airport.shiftWind()` forces a shift from the console.
+Live KAPA METAR drives the wind by default. `serve.py` proxies `/api/weather` from the Aviation Weather Center. The simulator polls about once a minute, writes direction and speed, selects runways the same way as a scripted shift, and turns the windsock. Variable (`VRB`) reports keep the current heading and only update speed. A change waits if anyone is taxiing, lining up, taking off, landing, on approach, or occupying a runway. Airborne traffic assigned a now-closed runway is cleared to request the new active set. Tower announces a real change (heading ≥ 8°, speed ≥ 3 kt, or a runway swap). Append `?weather=0` to use the old scripted 75–150 second random shifts instead. `window.airport.shiftWind()` still forces a scripted shift from the console when live METAR is off.
 
 Each active runway has its own traffic reservation. A departure or arrival on `17L` no longer blocks the parallel `17R`, while single-runway operations still serialize traffic. Inbound traffic has priority over departures, and a runway remains reserved until the arrival has exited.
 
@@ -107,6 +107,14 @@ Browsers require a gesture before audio playback. Tap once anywhere to unlock AT
 
 The server caches WAV files in `/tmp/airport-sim-tts`. The cache key includes the selected voice, so controller and pilot versions of the same phrase are stored separately. Callsigns use NATO phonetics and runway numbers use spoken digits before synthesis. The browser plays returned WAVs through one reusable audio element with serialized playback.
 
+## Live ADS-B traffic
+
+Live mode is on by default when `serve.py` is running. The simulator polls `/api/traffic`, which proxies OpenSky around KAPA (about 8 nm, cached four seconds). Airborne tracks below about 9,000 ft AGL and slower than airliner cruise are spawned and followed in local metres (origin at the `17L` threshold). Labels on those ships read `ADS-B`. The HUD brand line reports the last poll (`KAPA / Live ADS-B · N ads-b`).
+
+Descending tracks toward the field request approach. Tower can `CLEAR_APPROACH` (spoken, with a pilot call) while the ship still follows ADS-B; the runway is not reserved until landing. Handoff to landing or taxi-in happens only when the track is on the strip (near centerline, not short of the threshold). The aircraft is then snapped onto the pavement. A full ramp fades the arrival instead. Once handed off, that hex stays one object through landing, taxi, and parking so noisy `on_ground` flags cannot respawn it with a new voice. Inbound calls for a tail are limited to once per two minutes. The pilot voice is pinned to the Mode S hex. Live tails that park are retired after a short dwell so the next arrival can use the gate. A real airborne track after parking starts a new follow.
+
+Live mode does not spawn the invented startup five (`N5520T`, `N731TW`, `N442LB`, `N908J`, `N117CT`) or the two scripted helicopters. The field starts empty until OpenSky reports local traffic. Append `?live=0` for the scripted fleet. OpenSky is anonymous and rate-limited; a failed poll keeps the last good snapshot. Restart `serve.py` after pulling so `/api/traffic` is available.
+
 ## Simulation
 
 Five fixed-wing aircraft follow this state machine:
@@ -116,9 +124,13 @@ PARKED -> TAXI_OUT -> HOLD_SHORT -> LINEUP -> TAKEOFF
        -> AIRBORNE -> APPROACH -> LANDING -> TAXI_IN -> PARKED
 ```
 
-Ground routes use tight waypoint capture so aircraft settle precisely on hold pads and aprons. Airborne routes use a turn-radius-based capture gate so fast aircraft cannot orbit a waypoint they cannot make. Takeoff rotation occurs after 60% of the runway, and landing turnoff uses the runway's published exit point.
+Ground routes follow the taxi polyline, not the aircraft heading, so they stay on the painted lane even at 4×. Straight-lane taxi is about 19 m/s, with slower gate crawl and landing-exit speeds. Aircraft settle precisely on hold pads and aprons. Taxi also locks 20 m cells and the next waypoint, and a plane holds if another ground aircraft is within about 24 m or ahead in a 42 m cone. Inbound has right of way over outbound; everyone yields to hold-short, lineup, landing, and takeoff. Two lineups yield by id. `CLEAR_TAKEOFF` is accepted only when the aircraft is at that runway’s hold pad, so a 17L hold cannot be sent across 17L for a 17R departure. Only one runway crossing is cleared at a time. Airborne routes use a turn-radius-based capture gate so fast aircraft cannot orbit a waypoint they cannot make. Takeoff rotation occurs after 60% of the runway, and landing turnoff uses the runway's published exit point. A landing roll that starts short of the threshold is pulled onto the pavement.
 
-The decision loop runs every ten seconds and can use rules, Ollama, or an OpenAI-compatible endpoint. Snapshot data includes wind, active runways, per-runway reservations, runway crossings, aircraft states, positions, and requests. Decisions are normalized, validated against the active-runway set, and rejected rather than applied if inconsistent. Ollama failures fall back to the deterministic rule engine, and animation never waits on model latency.
+The decision loop runs every ten seconds and can use rules, Ollama, or an OpenAI-compatible endpoint. Snapshot data includes wind, active runways, per-runway reservations, runway crossings, aircraft states, positions, and requests. Decisions are normalized, validated against the active-runway set, and rejected rather than applied if inconsistent. Ollama failures fall back to the deterministic rule engine, and animation never waits on model latency. The HUD log shows tower phrasing (for example `N442LB, hold short runway 17L, N117CT on 17L`). Model rejections stay in the browser console; they are not prepended to the clearance text.
+
+If twenty seconds pass with no approach or takeoff, Tower South and Tower North get a hot-mic exchange from Ollama (`HOT MIC` in the log, spoken if ATC voice is on). Each round is a new prompt so the jokes do not repeat on a loop. `window.airport.banterNow()` forces one.
+
+Click a decision-log row, or a callsign in the clearance bar, to chase that aircraft with the camera. Drag the field, Reset view, or Auto-orbit to drop the follow.
 
 Two safety flows extend the fixed-wing sequence:
 
@@ -127,7 +139,7 @@ Two safety flows extend the fixed-wing sequence:
 
 ## Helicopter Operations
 
-Two helicopters operate independently of the fixed-wing ATC loop:
+With `?live=0`, two helicopters operate independently of the fixed-wing ATC loop:
 
 - `N911KA`, a medium twin-engine medevac helicopter, starts at the Heliplex pad.
 - `N450KA`, a light turbine helicopter, starts at Pad 8.
@@ -145,6 +157,8 @@ airport-sim.html?ai=openai
 airport-sim.html?ai=ollama&model=qwen3.5-9b-64k:latest
 airport-sim.html?scenario=random
 airport-sim.html?scenario=fixed
+airport-sim.html?live=0
+airport-sim.html?weather=0
 ```
 
 The endpoint and model defaults live in `AI_CONFIG` near the top of the module. Ollama is called through `/api/chat`, which `serve.py` proxies to `http://127.0.0.1:11434`.
@@ -166,7 +180,7 @@ The visual pass uses:
 
 - `airport-sim.html` — simulator, scene, simulation logic, HUD, and model adapter.
 - `kapa-layout.js` — generated runway, taxiway, apron, building, and helipad geometry.
-- `serve.py` — static server, Ollama proxy, and Kokoro/Piper synthesis.
+- `serve.py` — static server, Ollama proxy, Kokoro/Piper synthesis, OpenSky traffic, and KAPA METAR proxy.
 - `.kokoro-venv/` — Python 3.12 runtime containing `kokoro-onnx`, `onnxruntime`, and `numpy`.
 - `voices/kokoro/kokoro-v1.0.int8.onnx` — Kokoro-82M int8 speech model.
 - `voices/kokoro/voices-v1.0.bin` — Kokoro voice pack.
@@ -199,6 +213,8 @@ The speech endpoint can be checked independently:
 
 ```bash
 curl -s http://127.0.0.1:8123/api/health
+curl -s http://127.0.0.1:8123/api/traffic | head
+curl -s http://127.0.0.1:8123/api/weather
 curl -s -H 'Content-Type: application/json' \
   --data '{"text":"Tower radio check.","voice":"north"}' \
   -o /tmp/tts-north.wav http://127.0.0.1:8123/api/tts
@@ -209,15 +225,19 @@ curl -s -H 'Content-Type: application/json' \
 
 ## Controls
 
-- Mouse drag: orbit.
+After the field loads, a popup lists the controls. **Got it** dismisses it.
+
+- Mouse drag: orbit (cancels aircraft follow).
 - Scroll: zoom.
-- Speed buttons: simulation time scale.
-- Auto-orbit button: toggle camera orbit.
+- Click a decision-log entry or a clearance-bar callsign: chase that aircraft.
+- Pause: freeze the sim clock.
+- Speed buttons (scripted `?live=0` only): simulation time scale. Hidden in live ADS-B mode.
+- Auto-orbit button: toggle camera orbit (cancels follow).
 - ATC voice button: unlock, mute, or re-enable clearances.
-- Reset view: return to the home camera.
+- Reset view: return to the home camera and drop follow.
 - AI badge: shows whether decisions come from rules, Ollama, or an OpenAI-compatible model.
 
-`window.airport` exposes the scene, camera, orbit controls, aircraft, decision history, weather, renderer, startup scenario, voice state, and `decideNow()` for debugging and automated tests.
+`window.airport` exposes the scene, camera, orbit controls, aircraft, decision history, weather, renderer, startup scenario, voice state, live traffic and METAR status, `shiftWind()`, `focusAircraft(id)`, `banterNow()`, and `decideNow()` for debugging and automated tests.
 
 ## Attribution
 

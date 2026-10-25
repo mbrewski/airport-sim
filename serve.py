@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import wave
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -52,9 +53,23 @@ PORT = int(os.environ.get("PORT", "8123"))
 TTS_CACHE = os.path.join(tempfile.gettempdir(), "airport-sim-tts")
 os.makedirs(TTS_CACHE, exist_ok=True)
 
+# 17L threshold in the local metre frame. Box is ~8 nm around KAPA.
+KAPA_LAT = 39.58409881591797
+KAPA_LON = -104.85099792480469
+OPENSKY_URL = (
+    "https://opensky-network.org/api/states/all"
+    f"?lamin={KAPA_LAT - 0.12}&lomin={KAPA_LON - 0.15}"
+    f"&lamax={KAPA_LAT + 0.12}&lomax={KAPA_LON + 0.15}"
+)
+
 _kokoro = None
 _kokoro_lock = threading.Lock()
 _kokoro_error = None
+_traffic_lock = threading.Lock()
+_traffic_cache = {"at": 0.0, "payload": None}
+METAR_URL = "https://aviationweather.gov/api/data/metar?ids=KAPA&format=json&hours=1"
+_weather_lock = threading.Lock()
+_weather_cache = {"at": 0.0, "payload": None}
 
 
 def kokoro_installed():
@@ -144,6 +159,115 @@ def synthesize_piper(text, output_path, voice_path=None):
     if completed.returncode != 0 or not os.path.getsize(output_path):
         detail = completed.stderr.decode(errors="replace").strip()
         raise RuntimeError(detail or "Piper produced no audio")
+
+
+def fetch_opensky_traffic():
+    now = time.time()
+    with _traffic_lock:
+        cached = _traffic_cache["payload"]
+        cached_at = _traffic_cache["at"]
+        if cached is not None and now - cached_at < 4:
+            return cached
+    request = Request(
+        OPENSKY_URL,
+        headers={"User-Agent": "airport-sim/1.0 (kapa live traffic)"},
+    )
+    try:
+        with urlopen(request, timeout=12) as response:
+            raw = json.loads(response.read().decode())
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+        if cached is not None:
+            return cached
+        raise RuntimeError(f"OpenSky unavailable: {error}") from error
+
+    tracks = []
+    for state in raw.get("states") or []:
+        if not state or state[6] is None or state[5] is None:
+            continue
+        tracks.append(
+            {
+                "icao24": str(state[0] or "").strip().lower(),
+                "callsign": str(state[1] or "").strip().upper(),
+                "lon": state[5],
+                "lat": state[6],
+                "baroAltitude": state[7],
+                "geoAltitude": state[13],
+                "onGround": bool(state[8]),
+                "velocity": state[9],
+                "track": state[10],
+                "verticalRate": state[11],
+                "squawk": state[14],
+            }
+        )
+    payload = {
+        "ok": True,
+        "source": "opensky",
+        "time": raw.get("time"),
+        "origin": {"lat": KAPA_LAT, "lon": KAPA_LON, "elev": 1765},
+        "tracks": tracks,
+    }
+    with _traffic_lock:
+        _traffic_cache["at"] = now
+        _traffic_cache["payload"] = payload
+    return payload
+
+
+def _metar_direction(value):
+    if value is None:
+        return None
+    if isinstance(value, str) and value.upper() in {"VRB", "VAR"}:
+        return None
+    try:
+        direction = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    return direction % 360
+
+
+def fetch_kapa_metar():
+    now = time.time()
+    with _weather_lock:
+        cached = _weather_cache["payload"]
+        cached_at = _weather_cache["at"]
+        if cached is not None and now - cached_at < 45:
+            return cached
+    request = Request(
+        METAR_URL,
+        headers={"User-Agent": "airport-sim/1.0 (kapa metar)", "Accept": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=12) as response:
+            raw = json.loads(response.read().decode())
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+        if cached is not None:
+            return cached
+        raise RuntimeError(f"METAR unavailable: {error}") from error
+
+    report = raw[0] if isinstance(raw, list) and raw else raw
+    if not isinstance(report, dict):
+        if cached is not None:
+            return cached
+        raise RuntimeError("METAR unavailable: empty report")
+
+    payload = {
+        "ok": True,
+        "source": "aviationweather",
+        "station": report.get("icaoId") or "KAPA",
+        "raw": report.get("rawOb") or report.get("raw") or "",
+        "time": report.get("reportTime") or report.get("obsTime"),
+        "windDirection": _metar_direction(report.get("wdir")),
+        "windSpeed": report.get("wspd"),
+        "windGust": report.get("wgst"),
+        "variable": _metar_direction(report.get("wdir")) is None and report.get("wdir") is not None,
+        "visib": report.get("visib"),
+        "fltCat": report.get("fltCat"),
+        "cover": report.get("cover"),
+        "temp": report.get("temp"),
+    }
+    with _weather_lock:
+        _weather_cache["at"] = now
+        _weather_cache["payload"] = payload
+    return payload
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -279,8 +403,25 @@ class Handler(SimpleHTTPRequestHandler):
             audio_payload = audio.read()
         self.send_bytes(200, audio_payload, "audio/wav", "public, max-age=86400")
 
+    def handle_traffic(self):
+        try:
+            payload = fetch_opensky_traffic()
+        except RuntimeError as error:
+            self.send_json(502, {"ok": False, "error": str(error), "tracks": []})
+            return
+        self.send_json(200, payload)
+
+    def handle_weather(self):
+        try:
+            payload = fetch_kapa_metar()
+        except RuntimeError as error:
+            self.send_json(502, {"ok": False, "error": str(error)})
+            return
+        self.send_json(200, payload)
+
     def do_GET(self):
-        if urlsplit(self.path).path == "/api/health":
+        path = urlsplit(self.path).path
+        if path == "/api/health":
             use_kokoro = TTS_ENGINE == "kokoro" and kokoro_installed()
             self.send_json(
                 200,
@@ -292,8 +433,16 @@ class Handler(SimpleHTTPRequestHandler):
                     "north_voice": KOKORO_NORTH_VOICE if use_kokoro else os.path.basename(PIPER_NORTH_VOICE),
                     "pilot_voices": list(KOKORO_PILOT_VOICES) if use_kokoro else [os.path.basename(PIPER_PILOT_VOICE)],
                     "kokoro_error": _kokoro_error,
+                    "traffic": True,
+                    "weather": True,
                 },
             )
+            return
+        if path == "/api/traffic":
+            self.handle_traffic()
+            return
+        if path == "/api/weather":
+            self.handle_weather()
             return
         super().do_GET()
 

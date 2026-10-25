@@ -378,6 +378,17 @@
     }
 
     .log-who { color: var(--ink); font-weight: 650; margin-left: auto; }
+    .log-entry[data-aircraft-id],
+    .log-who[data-aircraft-id],
+    .focus-callsign {
+      cursor: pointer;
+    }
+    .log-entry[data-aircraft-id]:hover .log-who,
+    .log-who[data-aircraft-id]:hover,
+    .focus-callsign:hover {
+      color: var(--cyan);
+      text-decoration: underline;
+    }
     .log-reason {
       margin: 0;
       color: #9eb1c3;
@@ -459,6 +470,14 @@
       margin: 0 1px;
     }
 
+    #speed-controls {
+      display: contents;
+    }
+
+    #speed-controls.hidden {
+      display: none;
+    }
+
     .hint {
       position: absolute;
       right: 24px;
@@ -487,6 +506,78 @@
     }
 
     .loading.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    .help-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(4, 9, 14, 0.62);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 280ms ease, visibility 280ms ease;
+    }
+
+    .help-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+
+    .help-card {
+      width: min(420px, calc(100vw - 40px));
+      border-radius: 18px;
+      padding: 22px 22px 18px;
+      pointer-events: auto;
+    }
+
+    .help-card h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .help-card p,
+    .help-card li {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .help-card ul {
+      margin: 12px 0 18px;
+      padding-left: 18px;
+    }
+
+    .help-card li + li { margin-top: 8px; }
+
+    .help-card strong { color: var(--ink); font-weight: 650; }
+
+    .help-card button {
+      appearance: none;
+      width: 100%;
+      border: 1px solid rgba(103, 215, 255, 0.35);
+      background: rgba(103, 215, 255, 0.12);
+      color: var(--cyan);
+      border-radius: 11px;
+      padding: 11px 14px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    .help-card button:hover {
+      background: rgba(103, 215, 255, 0.2);
+      color: var(--ink);
+    }
 
     .loader-box {
       width: min(390px, calc(100vw - 40px));
@@ -589,7 +680,7 @@
       <div class="brand-mark">APA</div>
       <div>
         <h1>Centennial</h1>
-        <p><span class="live-dot"></span>KAPA / Tower simulation</p>
+        <p><span class="live-dot"></span><span id="brand-mode">KAPA / Tower simulation</span></p>
       </div>
     </div>
 
@@ -651,10 +742,12 @@
 
     <div class="controls glass">
       <button id="btn-pause" type="button">Pause</button>
-      <div class="divider"></div>
-      <button class="speed-btn active" data-speed="1" type="button">1x</button>
-      <button class="speed-btn" data-speed="2" type="button">2x</button>
-      <button class="speed-btn" data-speed="4" type="button">4x</button>
+      <span id="speed-controls">
+        <span class="divider"></span>
+        <button class="speed-btn active" data-speed="1" type="button">1x</button>
+        <button class="speed-btn" data-speed="2" type="button">2x</button>
+        <button class="speed-btn" data-speed="4" type="button">4x</button>
+      </span>
       <div class="divider"></div>
       <button id="btn-view" type="button">Reset view</button>
       <button id="btn-orbit" type="button">Auto-orbit</button>
@@ -675,6 +768,18 @@
       <div class="load-track"><div class="load-fill" id="load-fill"></div></div>
       <div class="load-meta"><span id="load-label">Connecting…</span><span id="load-pct">0%</span></div>
       <div class="error" id="load-error"></div>
+    </div>
+  </div>
+
+  <div class="help-overlay" id="help-overlay" role="dialog" aria-labelledby="help-title" aria-modal="true">
+    <div class="help-card glass">
+      <h2 id="help-title">Field controls</h2>
+      <p>Drag the airfield to orbit. Scroll to zoom. Use the bar for pause, reset view, auto-orbit, and ATC voice.</p>
+      <ul>
+        <li><strong>Decision loop:</strong> click an aircraft row (or a callsign in the clearance bar) to zoom the camera onto that ship. It keeps following until you drag, reset view, or auto-orbit.</li>
+        <li><strong>First click</strong> also unlocks tower audio if voice is enabled.</li>
+      </ul>
+      <button id="btn-help-dismiss" type="button">Got it</button>
     </div>
   </div>
 
@@ -738,7 +843,7 @@
       centerX: 700,
       centerZ: -1500,
       gateZ: -245,
-      taxiSpeed: 15.5,
+      taxiSpeed: 19,
       takeoffSpeed: 64,
       takeoffAcceleration: 9.5,
       approachSpeed: 82,
@@ -747,8 +852,32 @@
       orbitRadius: 2600,
       orbitCenterX: 700,
       orbitCenterZ: -1500,
-      exitSpeed: 8.5,
+      exitSpeed: 11,
+      originLat: 39.58409881591797,
+      originLon: -104.85099792480469,
+      fieldElev: 1765,
     };
+
+    const LIVE_TRAFFIC = {
+      enabled: urlParams.get('live') !== '0',
+      url: '/api/traffic',
+      pollSeconds: 4,
+      staleSeconds: 22,
+      maxAirborne: 16,
+      maxAgl: 2800,
+      maxGs: 145,
+      maxRange: 14000,
+    };
+    let liveTrafficStatus = LIVE_TRAFFIC.enabled ? 'connecting' : 'off';
+    let livePollTimer = 0;
+
+    const LIVE_WEATHER = {
+      enabled: urlParams.get('weather') !== '0',
+      url: '/api/weather',
+      pollSeconds: 60,
+    };
+    let liveWeatherStatus = LIVE_WEATHER.enabled ? 'connecting' : 'off';
+    let pendingLiveMetar = null;
 
     const KAPA_RUNWAY_DEFS = [
       {
@@ -935,6 +1064,33 @@
     controls.maxPolarAngle = Math.PI * 0.495;
     controls.autoRotateSpeed = 0.22;
     controls.update();
+    let followAircraft = null;
+
+    function focusAircraftById(aircraftId) {
+      const aircraft = aircraftList.find((item) => item.id === aircraftId)
+        ?? helicopterList.find((item) => item.id === aircraftId);
+      if (!aircraft || aircraft.retired) return;
+      followAircraft = aircraft;
+      controls.autoRotate = false;
+      orbitBtn?.classList.remove('active');
+    }
+
+    function updateFollowCamera(dt) {
+      if (!followAircraft || followAircraft.retired || followAircraft.root?.visible === false) {
+        followAircraft = null;
+        return;
+      }
+      const pos = followAircraft.pos;
+      const heading = followAircraft.heading ?? 0;
+      const desiredTarget = new THREE.Vector3(pos.x, pos.y + 6, pos.z);
+      const desiredCam = desiredTarget.clone();
+      desiredCam.x -= Math.sin(heading) * 110;
+      desiredCam.z -= Math.cos(heading) * 110;
+      desiredCam.y += 48;
+      const blend = 1 - Math.exp(-dt * 3.4);
+      camera.position.lerp(desiredCam, blend);
+      controls.target.lerp(desiredTarget, blend);
+    }
 
     // ── Sky, sun, stars ────────────────────────────────────────────────────
     const sky = new Sky();
@@ -2083,9 +2239,8 @@
         WORLD.gateZ,
       );
 
-      // The roster and model types are fixed; Ollama chooses the starting
-      // traffic picture, weather, gate lineup, priorities, and timings.
-      const specs = [
+      // Scripted roster is only for ?live=0. Live mode waits on ADS-B.
+      const specs = LIVE_TRAFFIC.enabled ? [] : [
         {
           id: 'ac-1',
           callsign: 'N5520T',
@@ -2149,7 +2304,7 @@
         aircraftList.push(aircraft);
       }
 
-      const helicopterSpecs = [
+      const helicopterSpecs = LIVE_TRAFFIC.enabled ? [] : [
         {
           id: 'hel-1',
           callsign: 'N911KA',
@@ -2180,38 +2335,103 @@
         helicopterList.push(helicopter);
       }
 
-      // Two optional-but-easy ground vehicles from the same pack.
-      const tugRoute = [
-        new THREE.Vector3(225, 0, -275),
-        new THREE.Vector3(270, 0, -275),
-        new THREE.Vector3(270, 0, -285),
-        new THREE.Vector3(225, 0, -285),
+      const serviceLoops = [
+        {
+          gltf: tug,
+          name: 'ground-tug-1',
+          speed: 3.6,
+          route: [
+            new THREE.Vector3(225, 0, -275),
+            new THREE.Vector3(270, 0, -275),
+            new THREE.Vector3(270, 0, -285),
+            new THREE.Vector3(225, 0, -285),
+          ],
+        },
+        {
+          gltf: tug,
+          name: 'ground-tug-2',
+          speed: 4.1,
+          route: [
+            new THREE.Vector3(360, 0, -268),
+            new THREE.Vector3(430, 0, -268),
+            new THREE.Vector3(430, 0, -282),
+            new THREE.Vector3(360, 0, -282),
+          ],
+        },
+        {
+          gltf: tug,
+          name: 'ground-tug-3',
+          speed: 3.3,
+          route: [
+            new THREE.Vector3(155, 0, -255),
+            new THREE.Vector3(210, 0, -255),
+            new THREE.Vector3(210, 0, -268),
+            new THREE.Vector3(155, 0, -268),
+          ],
+        },
+        {
+          gltf: bowser,
+          name: 'fuel-bowser-1',
+          speed: 3.2,
+          route: [
+            new THREE.Vector3(225, 0, -300),
+            new THREE.Vector3(270, 0, -300),
+            new THREE.Vector3(270, 0, -290),
+            new THREE.Vector3(225, 0, -290),
+          ],
+        },
+        {
+          gltf: bowser,
+          name: 'fuel-bowser-2',
+          speed: 2.9,
+          route: [
+            new THREE.Vector3(310, 0, -312),
+            new THREE.Vector3(370, 0, -312),
+            new THREE.Vector3(370, 0, -298),
+            new THREE.Vector3(310, 0, -298),
+          ],
+        },
+        {
+          gltf: bowser,
+          name: 'fuel-bowser-3',
+          speed: 3.4,
+          route: [
+            new THREE.Vector3(175, 0, -318),
+            new THREE.Vector3(230, 0, -318),
+            new THREE.Vector3(230, 0, -304),
+            new THREE.Vector3(175, 0, -304),
+          ],
+        },
       ];
-      const bowserRoute = [
-        new THREE.Vector3(225, 0, -300),
-        new THREE.Vector3(270, 0, -300),
-        new THREE.Vector3(270, 0, -290),
-        new THREE.Vector3(225, 0, -290),
-      ];
-      const tugVehicle = new GroundVehicle(tug, tugRoute[0], tugRoute);
-      const bowserVehicle = new GroundVehicle(bowser, bowserRoute[0], bowserRoute);
-      tugVehicle.root.name = 'ground-tug';
-      bowserVehicle.root.name = 'fuel-bowser';
-      scene.add(tugVehicle.root, bowserVehicle.root);
-      groundVehicles.push(tugVehicle, bowserVehicle);
+      for (const spec of serviceLoops) {
+        const vehicle = new GroundVehicle(spec.gltf, spec.route[0], spec.route);
+        vehicle.root.name = spec.name;
+        vehicle.speed = spec.speed;
+        scene.add(vehicle.root);
+        groundVehicles.push(vehicle);
+      }
 
       setupHUD();
       setLoading(100, 'Ready');
       loadingEl.classList.add('hidden');
+      document.getElementById('help-overlay')?.classList.add('visible');
 
       console.info(
         `%c[TOWER] %cSimulation online — ${aircraftList.length} aircraft, ` +
-          `${helicopterList.length} helicopters, 2 ground vehicles, mode: ${AI_CONFIG.mode}`,
+          `${helicopterList.length} helicopters, ${groundVehicles.length} ground vehicles, mode: ${AI_CONFIG.mode}`,
         'color:#67d7ff;font-weight:700',
         'color:#9eb1c3',
       );
       console.info('[TOWER] Local-model hook: edit AI_CONFIG.mode or append ?ai=rules to the URL.');
       console.info('[TOWER] ATC voice: tap anywhere to unlock Kokoro audio.');
+      if (LIVE_TRAFFIC.enabled) {
+        console.info('[LIVE] ADS-B follow on. Append ?live=0 to use scripted traffic only.');
+        startLiveTraffic();
+      }
+      if (LIVE_WEATHER.enabled) {
+        console.info('[METAR] Live KAPA wind on. Append ?weather=0 to use scripted wind shifts.');
+        startLiveWeather();
+      }
 
       clock.start();
       animate();
@@ -2308,6 +2528,14 @@
         this.departing = Boolean(spec.departing);
         this.retired = false;
         this.taxiBlocked = false;
+        this.liveId = spec.liveId ?? null;
+        this.liveFollow = Boolean(spec.liveFollow);
+        this.liveOrigin = Boolean(spec.liveOrigin);
+        this.liveTarget = null;
+        this.liveUpdatedAt = 0;
+        this.goAroundTimer = 0;
+        this.liveApproachCleared = false;
+        this.liveAnnouncedInbound = false;
 
         this.pos = new THREE.Vector3();
         this.heading = Math.PI;
@@ -2440,7 +2668,7 @@
       buildTaxiOutRoute(runwayId) {
         const runway = RUNWAYS[runwayId];
         const lead = [
-          routePoint(this.gate.x, this.gate.z, 0.035, 4.5),
+          routePoint(this.gate.x, this.gate.z, 0.035, 7),
           routePoint(this.gate.x, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
           routePoint(236, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
           routePoint(236, -194, 0.035, WORLD.taxiSpeed),
@@ -2630,7 +2858,7 @@
           routePoint(236, -194, 0.035, WORLD.taxiSpeed),
           routePoint(236, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
           routePoint(this.gate.x, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
-          routePoint(this.gate.x, this.gate.z, 0.035, 4.5),
+          routePoint(this.gate.x, this.gate.z, 0.035, 7),
         ];
         let route;
         if (runwayId === '17L' || runwayId === '35R') {
@@ -2747,54 +2975,36 @@
 
       moveRoute(dt) {
         if (this.route.length === 0) return true;
+        if (this.pos.y < 8) {
+          let remaining = dt;
+          while (remaining > 1e-6) {
+            const slice = Math.min(remaining, 1 / 45);
+            remaining -= slice;
+            if (this.advanceGroundRoute(slice)) return true;
+          }
+          return false;
+        }
 
         while (this.routeIndex < this.route.length) {
           const target = this.route[this.routeIndex];
           const dx = target.x - this.pos.x;
           const dz = target.z - this.pos.z;
           const distance = Math.hypot(dx, dz);
-          const ground = this.pos.y < 8;
-          const turnRate = ground ? 2.2 : 1.1;
-          const captureRadius = ground ? 1.0 : Math.max(16, (this.speed / turnRate) * 1.05);
-          const crossingHold = target.crossingPhase === 'hold'
-            && target.crossingRunway
-            && this.crossingCleared !== target.crossingRunway;
-
-          const crossingStopRadius = Math.max(2.4, this.speed * dt * 1.6 + 2);
-          if (crossingHold && distance < crossingStopRadius) {
-            this.pos.x = target.x;
-            this.pos.z = target.z;
-            this.speed = 0;
-            this.crossingRunwayId = target.crossingRunway;
-            this.crossingRequested = true;
-            this.crossingActive = false;
-            return false;
-          }
+          const turnRate = 1.1;
+          const captureRadius = Math.max(16, (this.speed / turnRate) * 1.05);
 
           if (distance < captureRadius) {
-            if (ground) {
-              this.pos.x = target.x;
-              this.pos.z = target.z;
-            }
             if (target.crossingPhase === 'clear') this.finishCrossing();
             this.routeIndex += 1;
             continue;
           }
 
           const desiredHeading = Math.atan2(dx, dz);
-          const turnNeeded = Math.abs(shortestAngle(this.heading, desiredHeading));
           this.heading = turnToward(this.heading, desiredHeading, turnRate * dt);
 
-          let requestedSpeed = target.speed ?? this.routeSpeed;
-          if (ground && turnNeeded > 0.35 && distance < 20) {
-            requestedSpeed = Math.min(
-              requestedSpeed,
-              Math.max(2.4, distance * turnRate * 0.5),
-            );
-          }
-          const acceleration = ground ? 5.5 : 8;
+          const requestedSpeed = target.speed ?? this.routeSpeed;
           const speedDelta = requestedSpeed - this.speed;
-          this.speed += THREE.MathUtils.clamp(speedDelta, -acceleration * dt, acceleration * dt);
+          this.speed += THREE.MathUtils.clamp(speedDelta, -8 * dt, 8 * dt);
 
           const step = Math.max(0, this.speed * dt);
           if (step >= distance) {
@@ -2814,6 +3024,84 @@
         return true;
       }
 
+      advanceGroundRoute(dt) {
+        const turnRate = 2.8;
+        while (this.routeIndex < this.route.length) {
+          const target = this.route[this.routeIndex];
+          const prev = this.routeIndex > 0
+            ? this.route[this.routeIndex - 1]
+            : { x: this.pos.x, z: this.pos.z };
+          const sx = target.x - prev.x;
+          const sz = target.z - prev.z;
+          const segLen = Math.hypot(sx, sz);
+          if (segLen < 0.05) {
+            this.pos.x = target.x;
+            this.pos.z = target.z;
+            if (target.crossingPhase === 'clear') this.finishCrossing();
+            this.routeIndex += 1;
+            continue;
+          }
+
+          const nx = sx / segLen;
+          const nz = sz / segLen;
+          let along = (this.pos.x - prev.x) * nx + (this.pos.z - prev.z) * nz;
+          along = THREE.MathUtils.clamp(along, 0, segLen);
+          this.pos.x = prev.x + nx * along;
+          this.pos.z = prev.z + nz * along;
+          const remaining = segLen - along;
+
+          const crossingHold = target.crossingPhase === 'hold'
+            && target.crossingRunway
+            && this.crossingCleared !== target.crossingRunway;
+          const crossingStopRadius = Math.max(2.4, this.speed * dt * 1.6 + 2);
+          if (crossingHold && remaining < crossingStopRadius) {
+            this.pos.x = target.x;
+            this.pos.z = target.z;
+            this.speed = 0;
+            this.crossingRunwayId = target.crossingRunway;
+            this.crossingRequested = true;
+            this.crossingActive = false;
+            return false;
+          }
+
+          const desiredHeading = Math.atan2(nx, nz);
+          let requestedSpeed = target.speed ?? this.routeSpeed;
+          const next = this.route[this.routeIndex + 1];
+          if (next) {
+            const nextHeading = Math.atan2(next.x - target.x, next.z - target.z);
+            const corner = Math.abs(shortestAngle(desiredHeading, nextHeading));
+            if (corner > 0.28 && remaining < 10 + this.speed * 0.65) {
+              requestedSpeed = Math.min(
+                requestedSpeed,
+                Math.max(4.5, remaining * turnRate * 0.65),
+              );
+            }
+          }
+
+          this.speed += THREE.MathUtils.clamp(
+            requestedSpeed - this.speed,
+            -7.5 * dt,
+            7 * dt,
+          );
+          this.heading = turnToward(this.heading, desiredHeading, turnRate * dt);
+
+          const step = Math.max(0, this.speed * dt);
+          if (step >= remaining - 0.08) {
+            this.pos.x = target.x;
+            this.pos.z = target.z;
+            if (target.crossingPhase === 'clear') this.finishCrossing();
+            this.routeIndex += 1;
+            if (this.routeIndex >= this.route.length) return true;
+            continue;
+          }
+
+          this.pos.x += nx * step;
+          this.pos.z += nz * step;
+          return false;
+        }
+        return true;
+      }
+
       finishCrossing() {
         this.crossingRunwayId = null;
         this.crossingCleared = null;
@@ -2827,8 +3115,20 @@
 
         if (this.mixer) this.mixer.update(dt);
 
+        if (this.liveFollow) {
+          this.updateLiveFollow(dt);
+          if (this.actions['wheel-roll']) {
+            const wheelSpeed = this.pos.y < 0.8 ? THREE.MathUtils.clamp(this.speed / 12, 0, 3.5) : 0;
+            this.actions['wheel-roll'].timeScale = wheelSpeed;
+          }
+          this.syncTransform();
+          this.refreshLabel(false, dt);
+          return;
+        }
+
         if (['TAXI_OUT', 'TAXI_IN', 'HOLD_SHORT', 'LINEUP'].includes(this.state)) {
-          const claimed = claimTaxiReservation(this);
+          const claimed = claimTaxiReservation(this)
+            && !shouldHoldForGroundTraffic(this);
           if (!claimed && this.state !== 'HOLD_SHORT') {
             if (!this.taxiBlocked) {
               console.info(`[TAXI] ${this.callsign} holding for traffic`);
@@ -2854,7 +3154,12 @@
             this.speed = THREE.MathUtils.damp(this.speed, 0, 4, dt);
             this.pos.y = 0.035;
             this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
-            if (this.stateTime > this.parkedDwell) {
+            if (this.liveOrigin) {
+              if (this.stateTime > 48) {
+                this.retired = true;
+                this.root.visible = false;
+              }
+            } else if (this.stateTime > this.parkedDwell) {
               this.requestTaxi = true;
             }
             break;
@@ -3069,8 +3374,15 @@
         this.pos.y = 0.035;
         this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0.025, 4, dt);
 
-        const along = (this.pos.x - runway.threshold.x) * axis.x
+        let along = (this.pos.x - runway.threshold.x) * axis.x
           + (this.pos.z - runway.threshold.z) * axis.z;
+        if (along < 40) {
+          const pull = 50 - along;
+          this.pos.x += axis.x * pull;
+          this.pos.z += axis.z * pull;
+          this.heading = runway.heading;
+          along = 50;
+        }
         const turnOff = along > runway.landingExitAlong;
 
         if (turnOff) {
@@ -3113,8 +3425,26 @@
         if (this.crossingRequested && this.crossingRunwayId) {
           return `HOLD CROSSING ${this.crossingRunwayId}`;
         }
+        if (this.liveFollow && this.liveApproachCleared) return 'CLEARED APP';
+        if (this.liveFollow && this.requestApproach) return 'INBOUND';
+        if (this.liveFollow) return 'ADS-B';
         if (this.state === 'AIRBORNE' && this.patternHold) return 'HOLDING';
         return this.state.replaceAll('_', ' ');
+      }
+
+      updateLiveFollow(dt) {
+        const target = this.liveTarget;
+        if (!target) return;
+        const blend = 1 - Math.exp(-dt / 0.65);
+        this.pos.x += (target.x - this.pos.x) * blend;
+        this.pos.z += (target.z - this.pos.z) * blend;
+        this.pos.y += (target.y - this.pos.y) * blend;
+        this.pos.y = Math.max(0.035, this.pos.y);
+        this.heading = turnToward(this.heading, target.heading, 2.5 * dt);
+        this.speed = THREE.MathUtils.damp(this.speed, target.speed, 2.2, dt);
+        const pitch = THREE.MathUtils.clamp(-(target.verticalRate ?? 0) / 18, -0.14, 0.1);
+        this.visualPitch = THREE.MathUtils.damp(this.visualPitch, pitch, 3, dt);
+        this.flightTime += dt;
       }
     }
 
@@ -3130,9 +3460,13 @@
       return ak < bk ? `e:${ak}|${bk}` : `e:${bk}|${ak}`;
     }
 
+    function taxiCellKey(x, z) {
+      return `c:${Math.round(x / 20)}:${Math.round(z / 20)}`;
+    }
+
     function taxiKeysFor(aircraft) {
       if (aircraft.state === 'HOLD_SHORT') {
-        return [taxiNodeKey(aircraft.pos.x, aircraft.pos.z)];
+        return [taxiNodeKey(aircraft.pos.x, aircraft.pos.z), taxiCellKey(aircraft.pos.x, aircraft.pos.z)];
       }
       if (!['TAXI_OUT', 'TAXI_IN', 'LINEUP'].includes(aircraft.state)) return [];
       if (aircraft.route.length === 0) return [];
@@ -3144,10 +3478,14 @@
       const keys = [
         taxiNodeKey(previous.x, previous.z),
         taxiNodeKey(target.x, target.z),
+        taxiCellKey(aircraft.pos.x, aircraft.pos.z),
+        taxiCellKey(target.x, target.z),
       ];
       if (Math.hypot(target.x - previous.x, target.z - previous.z) > 0.5) {
         keys.push(taxiEdgeKey(previous, target));
       }
+      const lookahead = aircraft.route[index + 1];
+      if (lookahead) keys.push(taxiCellKey(lookahead.x, lookahead.z));
       return keys;
     }
 
@@ -3169,6 +3507,38 @@
       }
       for (const key of keys) taxiLocks.set(key, aircraft.id);
       return true;
+    }
+
+    function groundYieldsTo(self, other) {
+      if (other.state === 'TAKEOFF' || other.state === 'LANDING') return true;
+      if (self.state === 'TAKEOFF') return false;
+      if (other.state === 'HOLD_SHORT' && self.state !== 'HOLD_SHORT') return true;
+      if (self.state === 'TAXI_OUT' && other.state === 'TAXI_IN') return true;
+      if (self.state === 'TAXI_IN' && other.state === 'TAXI_OUT') return false;
+      if (self.state === 'LINEUP' && other.state === 'LINEUP') return self.id > other.id;
+      return self.id > other.id;
+    }
+
+    function shouldHoldForGroundTraffic(aircraft) {
+      const hx = Math.sin(aircraft.heading);
+      const hz = Math.cos(aircraft.heading);
+      for (const other of aircraftList) {
+        if (other.id === aircraft.id || other.retired) continue;
+        const rolling = other.state === 'TAKEOFF' || other.state === 'LANDING';
+        if (!rolling && other.pos.y > 6) continue;
+        if (!['TAXI_OUT', 'TAXI_IN', 'LINEUP', 'HOLD_SHORT', 'LANDING', 'TAKEOFF'].includes(other.state)) {
+          continue;
+        }
+        const dx = other.pos.x - aircraft.pos.x;
+        const dz = other.pos.z - aircraft.pos.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance > 42 || distance < 0.05) continue;
+        const ahead = dx * hx + dz * hz;
+        const close = distance < 24;
+        const inFront = ahead > 2 && ahead / distance > 0.18;
+        if ((close || inFront) && groundYieldsTo(aircraft, other)) return true;
+      }
+      return false;
     }
 
     function chooseArrivalEntryAngle() {
@@ -3295,13 +3665,308 @@
       if (retired.length === 0) return;
       for (const aircraft of retired) {
         releaseTaxiLocks(aircraft);
+        issuedCallsigns.delete(String(aircraft.callsign).toUpperCase());
         const index = aircraftList.indexOf(aircraft);
         if (index >= 0) aircraftList.splice(index, 1);
         disposeAircraft(aircraft);
       }
+      if (LIVE_TRAFFIC.enabled) return;
       for (let index = 0; index < retired.length; index += 1) {
         spawnArrivalAircraft();
       }
+    }
+
+    function lonLatToLocal(lon, lat) {
+      const metersPerDegLat = 111320;
+      const metersPerDegLon = 111320 * Math.cos(WORLD.originLat * Math.PI / 180);
+      return {
+        x: (lon - WORLD.originLon) * metersPerDegLon,
+        z: (lat - WORLD.originLat) * metersPerDegLat,
+      };
+    }
+
+    function liveTargetFromTrack(track) {
+      const { x, z } = lonLatToLocal(track.lon, track.lat);
+      const alt = Number(track.geoAltitude ?? track.baroAltitude);
+      const y = Number.isFinite(alt)
+        ? Math.max(0.035, alt - WORLD.fieldElev)
+        : WORLD.orbitAltitude;
+      const heading = Number.isFinite(track.track)
+        ? THREE.MathUtils.degToRad(track.track)
+        : 0;
+      return {
+        x,
+        z,
+        y: track.onGround ? 0.035 : y,
+        heading,
+        speed: Number(track.velocity) || 0,
+        verticalRate: Number(track.verticalRate) || 0,
+        onGround: Boolean(track.onGround),
+      };
+    }
+
+    function isLocalKapaTrack(track) {
+      if (!track.icao24 || track.lat == null || track.lon == null) return false;
+      const { x, z } = lonLatToLocal(track.lon, track.lat);
+      if (Math.hypot(x, z) > LIVE_TRAFFIC.maxRange) return false;
+      const alt = Number(track.geoAltitude ?? track.baroAltitude);
+      const agl = Number.isFinite(alt) ? alt - WORLD.fieldElev : 0;
+      if (!track.onGround && agl > LIVE_TRAFFIC.maxAgl) return false;
+      if ((track.velocity ?? 0) > LIVE_TRAFFIC.maxGs) return false;
+      return true;
+    }
+
+    function liveTypeForTrack(track) {
+      const speed = track.velocity ?? 0;
+      if (speed > 95) return DYNAMIC_AIRCRAFT_TYPES.find((type) => type.sourceKey === 'jet')
+        ?? DYNAMIC_AIRCRAFT_TYPES[0];
+      if (speed > 70) return DYNAMIC_AIRCRAFT_TYPES.find((type) => type.sourceKey === 'twin')
+        ?? DYNAMIC_AIRCRAFT_TYPES[0];
+      return DYNAMIC_AIRCRAFT_TYPES.find((type) => type.sourceKey === 'trainer')
+        ?? DYNAMIC_AIRCRAFT_TYPES[0];
+    }
+
+    function freeGateSlot() {
+      const used = new Set(
+        aircraftList
+          .filter((aircraft) => aircraft.state === 'PARKED' || aircraft.state === 'TAXI_IN')
+          .map(gateSlotFor),
+      );
+      return GATE_SLOTS.findIndex((_slot, index) => !used.has(index));
+    }
+
+    function projectOnRunway(pos, runway) {
+      const axis = runway.axis;
+      const along = (pos.x - runway.threshold.x) * axis.x
+        + (pos.z - runway.threshold.z) * axis.z;
+      const lat = (pos.x - runway.threshold.x) * -axis.z
+        + (pos.z - runway.threshold.z) * axis.x;
+      return { along, lat };
+    }
+
+    function nearestRunwayId(pos) {
+      let best = WEATHER.activeRunway;
+      let bestScore = Infinity;
+      const pool = WEATHER.activeRunways.length
+        ? WEATHER.activeRunways
+        : Object.keys(RUNWAYS);
+      for (const id of pool) {
+        const runway = RUNWAYS[id];
+        if (!runway) continue;
+        const { along, lat } = projectOnRunway(pos, runway);
+        const beyond = along < -200 || along > runway.length + 200;
+        const score = Math.abs(lat) + (beyond ? 400 : 0) + Math.max(0, -along);
+        if (score < bestScore) {
+          bestScore = score;
+          best = id;
+        }
+      }
+      return best;
+    }
+
+    function liveReadyToLand(aircraft, track) {
+      const runway = RUNWAYS[nearestRunwayId(aircraft.pos)];
+      if (!runway) return false;
+      const { along, lat } = projectOnRunway(aircraft.pos, runway);
+      const onStrip = Math.abs(lat) < 90 && along > -60 && along < runway.length + 80;
+      if (!onStrip) return false;
+      const speed = Number(track?.velocity ?? aircraft.speed);
+      const y = aircraft.liveTarget?.y ?? aircraft.pos.y;
+      return Boolean(track?.onGround && speed < 55) || (y < 28 && speed < 48);
+    }
+
+    function snapOntoRunway(aircraft, runway) {
+      const { along, lat } = projectOnRunway(aircraft.pos, runway);
+      const clamped = THREE.MathUtils.clamp(Math.max(along, 55), 55, runway.length * 0.45);
+      aircraft.pos.x = runway.threshold.x + runway.axis.x * clamped;
+      aircraft.pos.z = runway.threshold.z + runway.axis.z * clamped;
+      aircraft.pos.y = 0.035;
+      aircraft.heading = runway.heading;
+      aircraft.speed = Math.max(18, Math.min(aircraft.speed, 42));
+    }
+
+    function handoffLiveLanding(aircraft) {
+      const runwayId = (
+        aircraft.runwayId && WEATHER.activeRunways.includes(aircraft.runwayId)
+      ) ? aircraft.runwayId : nearestRunwayId(aircraft.pos);
+      const runway = RUNWAYS[runwayId];
+      if (!runway) return false;
+      const { along, lat } = projectOnRunway(aircraft.pos, runway);
+      if (Math.abs(lat) > 90 || along < -60) return false;
+
+      aircraft.liveFollow = false;
+      aircraft.liveOrigin = true;
+      aircraft.requestApproach = false;
+      aircraft.liveApproachCleared = false;
+      aircraft.patternHold = false;
+      aircraft.departing = false;
+      aircraft.clearRoute();
+      const slot = freeGateSlot();
+      if (slot < 0) {
+        console.info(`[LIVE] ${aircraft.callsign} landed; ramp full, fading`);
+        aircraft.retired = true;
+        aircraft.root.visible = false;
+        return true;
+      }
+      aircraft.gate.set(GATE_SLOTS[slot], 0, WORLD.gateZ);
+      aircraft.runwayId = runwayId;
+      if (along >= -30 && Math.abs(lat) < 90) {
+        snapOntoRunway(aircraft, runway);
+        aircraft.holdsRunway = true;
+        aircraft.setState('LANDING');
+      } else {
+        aircraft.pos.y = 0.035;
+        aircraft.holdsRunway = false;
+        aircraft.setState('TAXI_IN');
+        aircraft.buildTaxiInRoute(aircraft.runwayId);
+      }
+      console.info(
+        `%c[LIVE] %c${aircraft.callsign} handed to tower · RWY ${aircraft.runwayId}`,
+        'color:#67d7ff;font-weight:700',
+        'color:#9eb1c3',
+      );
+      return true;
+    }
+
+    function livePilotVoice(icao24) {
+      let hash = 0;
+      for (const character of String(icao24)) {
+        hash = (hash * 33 + character.charCodeAt(0)) >>> 0;
+      }
+      return PILOT_VOICE_OPTIONS[hash % PILOT_VOICE_OPTIONS.length];
+    }
+
+    function spawnLiveAircraft(track) {
+      const existing = aircraftList.find((item) => item.liveId === track.icao24);
+      if (existing) return existing;
+      const airborne = aircraftList.filter((aircraft) => aircraft.liveFollow).length;
+      if (airborne >= LIVE_TRAFFIC.maxAirborne) return null;
+      const available = DYNAMIC_AIRCRAFT_TYPES.filter((type) => Boolean(FLEET_MODELS[type.sourceKey]));
+      if (available.length === 0) return null;
+      const choice = liveTypeForTrack(track);
+      const type = FLEET_MODELS[choice.sourceKey] ? choice : available[0];
+      const serial = nextAircraftSerial;
+      nextAircraftSerial += 1;
+      const callsign = track.callsign || track.icao24.toUpperCase();
+      const target = liveTargetFromTrack(track);
+      const spec = {
+        id: `live-${track.icao24}`,
+        liveId: track.icao24,
+        liveFollow: true,
+        callsign,
+        type: type.type,
+        typeClass: type.typeClass,
+        priority: 1,
+        color: type.color,
+        gate: nextArrivalGate(),
+        source: FLEET_MODELS[type.sourceKey],
+        pilotVoice: livePilotVoice(track.icao24),
+        initial: { state: 'AIRBORNE', orbitAngle: 0, flightTime: 20, wait: 0 },
+      };
+      const aircraft = new Aircraft(spec);
+      aircraft.liveFollow = true;
+      aircraft.liveId = track.icao24;
+      aircraft.liveTarget = target;
+      aircraft.liveUpdatedAt = performance.now() / 1000;
+      aircraft.pos.set(target.x, target.y, target.z);
+      aircraft.heading = target.heading;
+      aircraft.speed = target.speed;
+      aircraft.requestApproach = false;
+      aircraft.liveApproachCleared = false;
+      aircraft.liveAnnouncedInbound = false;
+      aircraft.syncTransform();
+      aircraft.addToScene(scene);
+      aircraftList.push(aircraft);
+      aircraft.refreshLabel(true);
+      console.info(`[LIVE] ${aircraft.callsign} ${track.icao24} entered coverage`);
+      return aircraft;
+    }
+
+    function updateLiveInboundIntent(aircraft, track) {
+      if (!aircraft.liveFollow) return;
+      const range = Math.hypot(aircraft.pos.x, aircraft.pos.z);
+      const verticalRate = Number(track?.verticalRate ?? aircraft.liveTarget?.verticalRate ?? 0);
+      const agl = aircraft.pos.y;
+      const climbingOut = verticalRate > 3.5 || (agl > 180 && verticalRate > 1.2 && aircraft.speed > 48);
+      if (climbingOut) {
+        aircraft.departing = true;
+        aircraft.requestApproach = false;
+        return;
+      }
+      aircraft.departing = false;
+      const inbound = agl < 2100 && range < 12500 && verticalRate <= 2.5 && aircraft.speed < 130;
+      if (!inbound || aircraft.liveApproachCleared) return;
+      if (!aircraft.requestApproach) {
+        aircraft.requestApproach = true;
+        aircraft.waitTime = Math.max(aircraft.waitTime, 1);
+      }
+      if (!aircraft.liveAnnouncedInbound) {
+        aircraft.liveAnnouncedInbound = true;
+        announceInboundAircraft(aircraft);
+      }
+    }
+
+    async function pollLiveTraffic() {
+      if (!LIVE_TRAFFIC.enabled) return;
+      try {
+        const response = await fetch(LIVE_TRAFFIC.url, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const tracks = (data.tracks ?? []).filter(isLocalKapaTrack);
+        liveTrafficStatus = `${tracks.length} ads-b`;
+        const seen = new Set();
+        const now = performance.now() / 1000;
+        for (const track of tracks) {
+          seen.add(track.icao24);
+          let aircraft = aircraftList.find((item) => item.liveId === track.icao24);
+          if (aircraft && aircraft.liveOrigin && !aircraft.liveFollow) {
+            const onPavement = ['LANDING', 'TAXI_IN', 'TAXI_OUT', 'HOLD_SHORT', 'LINEUP', 'TAKEOFF', 'PARKED']
+              .includes(aircraft.state);
+            if (onPavement) {
+              aircraft.liveUpdatedAt = now;
+              continue;
+            }
+            if (!track.onGround && aircraft.pos.y < 8 && aircraft.state === 'PARKED') {
+              aircraft.retired = true;
+              aircraft.root.visible = false;
+              aircraft = null;
+            }
+          }
+          if (!aircraft && !track.onGround) {
+            aircraft = spawnLiveAircraft(track);
+          }
+          if (!aircraft) continue;
+          aircraft.liveTarget = liveTargetFromTrack(track);
+          aircraft.liveUpdatedAt = now;
+          if (aircraft.liveFollow) updateLiveInboundIntent(aircraft, track);
+          if (aircraft.liveFollow && liveReadyToLand(aircraft, track)) {
+            handoffLiveLanding(aircraft);
+          }
+        }
+        for (const aircraft of aircraftList) {
+          if (!aircraft.liveFollow || !aircraft.liveId) continue;
+          if (seen.has(aircraft.liveId) && now - aircraft.liveUpdatedAt < LIVE_TRAFFIC.staleSeconds) {
+            continue;
+          }
+          if (now - aircraft.liveUpdatedAt < LIVE_TRAFFIC.staleSeconds) continue;
+          if (aircraft.pos.y < 40 && aircraft.speed < 50 && handoffLiveLanding(aircraft)) {
+            continue;
+          } else {
+            console.info(`[LIVE] ${aircraft.callsign} lost, leaving coverage`);
+            aircraft.retired = true;
+            aircraft.root.visible = false;
+          }
+        }
+      } catch (error) {
+        liveTrafficStatus = 'ads-b down';
+        console.warn('[LIVE] OpenSky poll failed:', error);
+      }
+    }
+
+    function startLiveTraffic() {
+      if (!LIVE_TRAFFIC.enabled) return;
+      pollLiveTraffic();
+      setInterval(pollLiveTraffic, LIVE_TRAFFIC.pollSeconds * 1000);
     }
 
     // ── Canvas sprite labels ────────────────────────────────────────────────
@@ -3780,28 +4445,96 @@
       }
     }
 
+    function applyWeather(direction, speed, options = {}) {
+      const nextDirection = ((Math.round(direction) % 360) + 360) % 360;
+      const nextSpeed = Math.max(0, Math.round(speed));
+      const prevDirection = WEATHER.windDirection;
+      const prevSpeed = WEATHER.windSpeed;
+      const prevRunways = WEATHER.activeRunways.join('/');
+      WEATHER.windDirection = nextDirection;
+      WEATHER.windSpeed = nextSpeed;
+      WEATHER.activeRunway = activeRunwayForWind(nextDirection);
+      WEATHER.activeRunways = activeRunwaysForWind(nextDirection);
+      retargetAirborneForNewWind();
+      pointWindsock();
+      const changed = prevDirection !== nextDirection
+        || prevSpeed !== nextSpeed
+        || prevRunways !== WEATHER.activeRunways.join('/');
+      if (changed) {
+        const label = options.source === 'metar' ? 'METAR' : 'WIND';
+        console.info(
+          `%c[${label}] %c${String(nextDirection).padStart(3, '0')}° at ${nextSpeed} kt ` +
+            `· RWY ${WEATHER.activeRunways.join('/')}`,
+          'color:#67d7ff;font-weight:700',
+          'color:#9eb1c3',
+        );
+        renderWindShift(WEATHER.activeRunway, nextDirection, nextSpeed);
+        const headingDelta = Math.abs(shortestAngle(
+          THREE.MathUtils.degToRad(prevDirection),
+          THREE.MathUtils.degToRad(nextDirection),
+        )) * 180 / Math.PI;
+        if (headingDelta >= 8 || Math.abs(nextSpeed - prevSpeed) >= 3 || prevRunways !== WEATHER.activeRunways.join('/')) {
+          announceWindShift(WEATHER.activeRunway, nextDirection, nextSpeed);
+        }
+      }
+      return true;
+    }
+
     function applyRandomWindShift() {
+      if (LIVE_WEATHER.enabled) return false;
       if (!canShiftWind()) return false;
       const primary = nextWindRunway();
       const direction = Math.round(
         (RUNWAY_WIND_HEADINGS[primary] + randomBetween(-18, 18) + 360) % 360,
       );
       const speed = randomInteger(4, 13);
-      WEATHER.windDirection = direction;
-      WEATHER.windSpeed = speed;
-      WEATHER.activeRunway = activeRunwayForWind(direction);
-      WEATHER.activeRunways = activeRunwaysForWind(direction);
-      retargetAirborneForNewWind();
-      pointWindsock();
-      console.info(
-        `%c[WIND] %cShifted to ${String(direction).padStart(3, '0')}° at ${speed} kt ` +
-          `· RWY ${WEATHER.activeRunways.join('/')}`,
-        'color:#67d7ff;font-weight:700',
-        'color:#9eb1c3',
-      );
-      renderWindShift(WEATHER.activeRunway, direction, speed);
-      announceWindShift(WEATHER.activeRunway, direction, speed);
+      return applyWeather(direction, speed, { source: 'random' });
+    }
+
+    function applyLiveMetar(metar) {
+      if (!metar) return false;
+      const speed = Number.isFinite(Number(metar.windSpeed))
+        ? Number(metar.windSpeed)
+        : WEATHER.windSpeed;
+      const direction = metar.variable || metar.windDirection == null
+        ? WEATHER.windDirection
+        : metar.windDirection;
+      if (
+        direction === WEATHER.windDirection
+        && Math.round(speed) === WEATHER.windSpeed
+      ) {
+        liveWeatherStatus = metar.raw || `${String(direction).padStart(3, '0')}/${Math.round(speed)}`;
+        return true;
+      }
+      if (!canShiftWind()) {
+        pendingLiveMetar = metar;
+        liveWeatherStatus = 'waiting for field';
+        return false;
+      }
+      pendingLiveMetar = null;
+      applyWeather(direction, speed, { source: 'metar' });
+      liveWeatherStatus = metar.raw || `${String(direction).padStart(3, '0')}/${Math.round(speed)}`;
       return true;
+    }
+
+    async function pollLiveWeather() {
+      if (!LIVE_WEATHER.enabled) return;
+      try {
+        const response = await fetch(LIVE_WEATHER.url, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const metar = await response.json();
+        if (!metar.ok) throw new Error(metar.error || 'METAR failed');
+        applyLiveMetar(metar);
+      } catch (error) {
+        liveWeatherStatus = 'metar down';
+        console.warn('[METAR] poll failed:', error);
+      }
+    }
+
+    function startLiveWeather() {
+      if (!LIVE_WEATHER.enabled) return;
+      pollLiveWeather();
+      setInterval(pollLiveWeather, LIVE_WEATHER.pollSeconds * 1000);
     }
 
     function runwayFromWind() {
@@ -4143,7 +4876,7 @@
 
     function crossingForRunway(runwayId) {
       return aircraftList.find(
-        (aircraft) => aircraft.crossingActive
+        (aircraft) => (aircraft.crossingActive || aircraft.crossingRequested)
           && aircraft.crossingRunwayId === runwayId,
       ) ?? null;
     }
@@ -4259,6 +4992,7 @@
           requestTaxi: aircraft.requestTaxi,
           requestTakeoff: aircraft.requestTakeoff,
           requestApproach: aircraft.requestApproach,
+          live: Boolean(aircraft.liveFollow),
           holdsRunway: aircraft.holdsRunway,
           requestCrossing: aircraft.crossingRequested,
           crossingRunway: aircraft.crossingRunwayId,
@@ -4273,7 +5007,7 @@
     function ruleDecision(snapshot) {
       const planes = aircraftList;
       const holdShort = planes.filter((a) => a.state === 'HOLD_SHORT');
-      const parked = planes.filter((a) => a.state === 'PARKED' && a.requestTaxi);
+      const parked = planes.filter((a) => a.state === 'PARKED' && a.requestTaxi && !a.liveOrigin);
       const needsApproach = planes.filter(
         (a) => a.state === 'AIRBORNE' && a.requestApproach,
       );
@@ -4346,13 +5080,18 @@
 
       if (holdShort.length > 0) {
         const held = pickBest(holdShort);
+        const holdRunway = held.runwayId ?? runways[0];
+        const traffic = runways.flatMap((id) => {
+          const occupant = reservationForRunway(id) ?? crossingForRunway(id);
+          return occupant ? [`${occupant.callsign} on ${id}`] : [];
+        });
         return {
           action: 'HOLD',
           aircraftId: held.id,
-          runway: held.runwayId ?? runways[0],
-          reason:
-            `Active runways ${runways.join('/')} are occupied. ` +
-            `${held.callsign} remains at the hold-short line.`,
+          runway: holdRunway,
+          reason: traffic.length
+            ? `${held.callsign}, hold short runway ${holdRunway}, ${traffic.join('; ')}.`
+            : `${held.callsign}, hold short runway ${holdRunway}.`,
         };
       }
 
@@ -4584,8 +5323,12 @@
         return aircraft.state === 'PARKED' && aircraft.requestTaxi;
       }
       if (decision.action === 'CLEAR_TAKEOFF') {
-        return aircraft.state === 'HOLD_SHORT'
-          && !runwayOccupied(decision.runway);
+        if (aircraft.state !== 'HOLD_SHORT') return false;
+        if (runwayOccupied(decision.runway)) return false;
+        if (aircraft.runwayId && aircraft.runwayId !== decision.runway) return false;
+        const hold = RUNWAYS[decision.runway]?.hold;
+        if (!hold) return false;
+        return Math.hypot(aircraft.pos.x - hold.x, aircraft.pos.z - hold.z) < 45;
       }
       if (decision.action === 'CLEAR_APPROACH') {
         return aircraft.state === 'AIRBORNE'
@@ -4616,23 +5359,18 @@
             decision = normalizeDecision(raw);
             if (!validateDecision(decision)) {
               console.warn('[TOWER] Rejected model decision:', { raw, normalized: decision, snapshot });
-              fallbackReason = 'Model returned an invalid or unavailable clearance. ';
+              fallbackReason = 'invalid';
               decision = null;
             }
           } catch (error) {
-            fallbackReason = `Local model unavailable (${error.message}). `;
+            fallbackReason = 'unavailable';
             console.warn('[TOWER] LLM fallback:', error);
           }
         }
 
         if (!decision) {
           decision = ruleDecision(snapshot);
-          if (fallbackReason) {
-            decision.reason = fallbackReason + decision.reason;
-            decision.source = 'rules-fallback';
-          } else {
-            decision.source = 'rules';
-          }
+          decision.source = fallbackReason ? 'rules-fallback' : 'rules';
         }
 
         applyDecision(decision);
@@ -4670,6 +5408,11 @@
           aircraft.runwayId = decision.runway;
           aircraft.requestApproach = false;
           aircraft.patternHold = false;
+          if (aircraft.liveFollow) {
+            aircraft.liveApproachCleared = true;
+            aircraft.holdsRunway = false;
+            break;
+          }
           aircraft.holdsRunway = true;
           aircraft.buildApproachRoute(decision.runway);
           aircraft.setState('APPROACH');
@@ -4708,6 +5451,9 @@
       if (decisionHistory.length > 40) decisionHistory.shift();
 
       renderDecision(decision, decisionNumber);
+      if (decision.action === 'CLEAR_APPROACH' || decision.action === 'CLEAR_TAKEOFF') {
+        noteApproachOrTakeoff();
+      }
 
       const aircraft = aircraftList.find((a) => a.id === decision.aircraftId);
       announceDecision(decision, aircraft);
@@ -4752,6 +5498,9 @@
 
     let paused = false;
     let timeScale = 1;
+    if (LIVE_TRAFFIC.enabled) {
+      document.getElementById('speed-controls')?.classList.add('hidden');
+    }
     let hudTimer = 0;
 
     const NATO_WORDS = {
@@ -4866,7 +5615,13 @@
       pumpSpeech();
     }
 
+    const inboundCallAt = new Map();
+
     function announceInboundAircraft(aircraft) {
+      const key = String(aircraft.callsign).toUpperCase();
+      const now = performance.now();
+      if (now - (inboundCallAt.get(key) ?? 0) < 120000) return;
+      inboundCallAt.set(key, now);
       const text = `Tower, ${speakCallsign(aircraft.callsign)}, inbound for landing.`;
       renderPilotCall(aircraft, text);
       console.info(`[RADIO] ${aircraft.callsign}: inbound for landing`);
@@ -4874,6 +5629,167 @@
       speechQueue.push({ text, voice: pilotVoiceFor(aircraft), role: 'pilot' });
       while (speechQueue.length > 8) speechQueue.shift();
       pumpSpeech();
+    }
+
+    let opsIdleTimer = 0;
+    let banterPending = false;
+    const BANTER_IDLE_SECONDS = 20;
+    const BANTER_SPARKS = [
+      'bathroom line at the FBO',
+      'coffee that tastes like Jet A',
+      'a goose on 17L',
+      'who farted in the cab',
+      'Denver Approach hogging the freq',
+      'the windsock looking depressed',
+      'Taco Bell vs Perfect Landing',
+      'a student pilot named Kyle',
+      'the tower toilet being out of paper',
+      'why KAPA is dead today',
+      'the tug driver named Doug',
+      'whether 35s count as a personality',
+      'a mysterious smell on Ground',
+      'betting on the next ADS-B blip',
+      'north window bird poop',
+    ];
+
+    function noteApproachOrTakeoff() {
+      opsIdleTimer = 0;
+    }
+
+    function fieldHasApproachOrTakeoff() {
+      return aircraftList.some((aircraft) => (
+        aircraft.state === 'APPROACH'
+        || aircraft.state === 'TAKEOFF'
+        || aircraft.state === 'LINEUP'
+        || aircraft.requestApproach
+        || aircraft.requestTakeoff
+        || aircraft.liveApproachCleared
+      ));
+    }
+
+    function sanitizeBanterLine(value) {
+      return String(value ?? '')
+        .replace(/\s+/g, ' ')
+        .replace(/^["'`]+|["'`]+$/g, '')
+        .slice(0, 180)
+        .trim();
+    }
+
+    function parseBanter(raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      if (Array.isArray(raw.lines)) {
+        const lines = raw.lines
+          .map((item) => {
+            const who = String(item.who ?? item.speaker ?? item.voice ?? '').toLowerCase();
+            const text = sanitizeBanterLine(item.text ?? item.line ?? item.say);
+            if (!text) return null;
+            const voice = who.includes('north') ? 'north' : 'south';
+            return { voice, text };
+          })
+          .filter(Boolean)
+          .slice(0, 4);
+        return lines.length >= 2 ? lines : null;
+      }
+      const south = sanitizeBanterLine(raw.south);
+      const north = sanitizeBanterLine(raw.north);
+      if (!south || !north) return null;
+      return [
+        { voice: 'south', text: south },
+        { voice: 'north', text: north },
+      ];
+    }
+
+    async function askBanterModel() {
+      const spark = BANTER_SPARKS[Math.floor(Math.random() * BANTER_SPARKS.length)];
+      const nonce = Math.random().toString(36).slice(2, 8);
+      const systemPrompt = [
+        'You write hot-mic chatter between two bored Centennial (KAPA) tower controllers.',
+        'South is Tower. North is Tower North.',
+        'Make it random, specific, and funny. Potty humor is fine. Keep it PG-13 crude, not cruel.',
+        'Do not issue clearances. Do not mention being an AI. Do not use callsigns from a script.',
+        'Each line is one spoken radio sentence, max 22 words, no quotes, no stage directions.',
+        'Return ONLY JSON: {"lines":[{"who":"south","text":"..."},{"who":"north","text":"..."}]}',
+        'Exactly two or three lines, alternating south then north.',
+      ].join(' ');
+      const userPrompt = `Idle KAPA afternoon. Wind ${String(WEATHER.windDirection).padStart(3, '0')} at ${WEATHER.windSpeed}. Active ${WEATHER.activeRunways.join('/')}. Riff on: ${spark}. Unique id ${nonce}.`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      try {
+        const response = await fetch(AI_CONFIG.ollama.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: AI_CONFIG.ollama.model,
+            stream: false,
+            format: 'json',
+            think: false,
+            options: { temperature: 1.15, top_p: 0.95, num_predict: 180 },
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
+        const data = await response.json();
+        return parseBanter(parseModelJson(data.message?.content));
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    function renderBanter(lines) {
+      for (const line of [...lines].reverse()) {
+        const entry = document.createElement('article');
+        entry.className = 'log-entry';
+        entry.style.borderLeftColor = '#e6c07b';
+        const who = line.voice === 'north' ? 'NORTH' : 'SOUTH';
+        entry.innerHTML = `
+          <div class="log-top">
+            <span class="log-time">T+${formatSimTime(simulationTime)}</span>
+            <span class="log-action" style="color:#e6c07b">HOT MIC</span>
+            <span class="log-who">${who}</span>
+          </div>
+          <p class="log-reason">${escapeHTML(line.text)}</p>
+        `;
+        feedEl.prepend(entry);
+      }
+      while (feedEl.children.length > 9) feedEl.lastElementChild.remove();
+    }
+
+    async function requestIdleBanter() {
+      if (banterPending) return;
+      banterPending = true;
+      try {
+        const lines = await askBanterModel();
+        if (!lines) throw new Error('empty banter');
+        renderBanter(lines);
+        console.info('[HOT MIC]', lines.map((line) => `${line.voice}: ${line.text}`).join(' / '));
+        if (voiceEnabled) {
+          for (const line of lines) {
+            speechQueue.push({ text: line.text, voice: line.voice, role: 'controller' });
+          }
+          while (speechQueue.length > 8) speechQueue.shift();
+          pumpSpeech();
+        }
+      } catch (error) {
+        console.warn('[HOT MIC] banter skipped:', error.message);
+      } finally {
+        banterPending = false;
+        opsIdleTimer = 0;
+      }
+    }
+
+    function tickIdleBanter(dt) {
+      if (fieldHasApproachOrTakeoff()) {
+        opsIdleTimer = 0;
+        return;
+      }
+      opsIdleTimer += dt;
+      if (opsIdleTimer < BANTER_IDLE_SECONDS || banterPending) return;
+      opsIdleTimer = 0;
+      requestIdleBanter();
     }
 
     function announceDecision(decision, aircraft) {
@@ -5055,12 +5971,23 @@
           ? `Rule-based sequencing every ${AI_CONFIG.interval}s`
           : `${AI_CONFIG.mode} decision model · fallback enabled`;
 
-      statWindEl.innerHTML = `${String(WEATHER.windDirection).padStart(3, '0')}°<small>${WEATHER.windSpeed}kt</small>`;
+      const metarHint = LIVE_WEATHER.enabled && liveWeatherStatus && liveWeatherStatus !== 'off'
+        ? `<small>${liveWeatherStatus === 'connecting' || liveWeatherStatus === 'waiting for field' || liveWeatherStatus === 'metar down'
+          ? liveWeatherStatus
+          : 'METAR'}</small>`
+        : `<small>${WEATHER.windSpeed}kt</small>`;
+      statWindEl.innerHTML = `${String(WEATHER.windDirection).padStart(3, '0')}°${metarHint}`;
       statTowerEl.textContent = [...new Set(
         WEATHER.activeRunways.map((id) => controllerForRunway(id).label),
       )].join(' + ').toUpperCase();
       statRwyEl.textContent = WEATHER.activeRunways.join('/');
       updateVoiceButton();
+      const brandModeEl = document.getElementById('brand-mode');
+      if (brandModeEl) {
+        brandModeEl.textContent = LIVE_TRAFFIC.enabled
+          ? 'KAPA / Live ADS-B'
+          : 'KAPA / Tower simulation';
+      }
       updateHUD(true);
     }
 
@@ -5077,6 +6004,10 @@
       const entry = document.createElement('article');
       entry.className = 'log-entry';
       entry.style.borderLeftColor = colors[decision.action] ?? '#8fa4b8';
+      if (aircraft) {
+        entry.dataset.aircraftId = aircraft.id;
+        entry.title = `Zoom to ${aircraft.callsign}`;
+      }
       entry.innerHTML = `
         <div class="log-top">
           <span class="log-time">T+${formatSimTime(simulationTime)}</span>
@@ -5111,6 +6042,8 @@
       const entry = document.createElement('article');
       entry.className = 'log-entry';
       entry.style.borderLeftColor = '#82b9ff';
+      entry.dataset.aircraftId = aircraft.id;
+      entry.title = `Zoom to ${aircraft.callsign}`;
       entry.innerHTML = `
         <div class="log-top">
           <span class="log-time">T+${formatSimTime(simulationTime)}</span>
@@ -5124,12 +6057,17 @@
     }
 
     function updateHUD(force = false) {
+      statWindEl.innerHTML = `${String(WEATHER.windDirection).padStart(3, '0')}°<small>${WEATHER.windSpeed}kt${LIVE_WEATHER.enabled ? ' METAR' : ''}</small>`;
       const airborne = aircraftList.filter(
-        (a) => a.state === 'AIRBORNE' || a.state === 'APPROACH',
+        (a) => a.liveFollow || a.state === 'AIRBORNE' || a.state === 'APPROACH',
       ).length;
       statAircraftEl.textContent = aircraftList.length;
       statAirEl.textContent = airborne;
       statGroundEl.textContent = aircraftList.length - airborne;
+      const brandModeEl = document.getElementById('brand-mode');
+      if (brandModeEl && LIVE_TRAFFIC.enabled) {
+        brandModeEl.textContent = `KAPA / Live ADS-B · ${liveTrafficStatus}`;
+      }
       const helosAirborne = helicopterList.filter((helicopter) => helicopter.pos.y > 2).length;
       if (statHelosEl) {
         statHelosEl.textContent =
@@ -5161,7 +6099,9 @@
             : 'var(--amber)';
         clearanceLineEl.innerHTML = reservations
           .map(([runwayId, reservation]) => (
-            `<strong>RWY ${runwayId}</strong> ${reservation.callsign} · ${reservation.crossingActive ? `CROSSING ${runwayId}` : reservation.displayState}`
+            `<strong>RWY ${runwayId}</strong> ` +
+            `<span class="focus-callsign" data-aircraft-id="${reservation.id}" title="Zoom to ${reservation.callsign}">${reservation.callsign}</span>` +
+            ` · ${reservation.crossingActive ? `CROSSING ${runwayId}` : reservation.displayState}`
           ))
           .join(' &nbsp; ');
       } else {
@@ -5212,6 +6152,10 @@
     // 7. CONTROLS + MAIN LOOP
     // ═══════════════════════════════════════════════════════════════════════
 
+    document.getElementById('btn-help-dismiss')?.addEventListener('click', () => {
+      document.getElementById('help-overlay')?.classList.remove('visible');
+    });
+
     pauseBtn.addEventListener('click', () => {
       paused = !paused;
       pauseBtn.textContent = paused ? 'Resume' : 'Pause';
@@ -5229,11 +6173,29 @@
     });
 
     orbitBtn.addEventListener('click', () => {
+      followAircraft = null;
       controls.autoRotate = !controls.autoRotate;
       orbitBtn.classList.toggle('active', controls.autoRotate);
     });
 
+    feedEl.addEventListener('click', (event) => {
+      const hit = event.target.closest('[data-aircraft-id]');
+      if (!hit) return;
+      focusAircraftById(hit.dataset.aircraftId);
+    });
+
+    clearanceLineEl.addEventListener('click', (event) => {
+      const hit = event.target.closest('[data-aircraft-id]');
+      if (!hit) return;
+      focusAircraftById(hit.dataset.aircraftId);
+    });
+
+    controls.addEventListener('start', () => {
+      followAircraft = null;
+    });
+
     viewBtn.addEventListener('click', () => {
+      followAircraft = null;
       controls.autoRotate = false;
       orbitBtn.classList.remove('active');
       camera.position.copy(HOME_VIEW.position);
@@ -5291,9 +6253,14 @@
 
         windShiftTimer -= dt;
         if (windShiftTimer <= 0) {
-          windShiftTimer = applyRandomWindShift()
-            ? randomBetween(WIND_SHIFT_MIN_SECONDS, WIND_SHIFT_MAX_SECONDS)
-            : 4;
+          if (LIVE_WEATHER.enabled) {
+            if (pendingLiveMetar) applyLiveMetar(pendingLiveMetar);
+            windShiftTimer = 8;
+          } else {
+            windShiftTimer = applyRandomWindShift()
+              ? randomBetween(WIND_SHIFT_MIN_SECONDS, WIND_SHIFT_MAX_SECONDS)
+              : 4;
+          }
         }
 
         decisionTimer -= dt;
@@ -5308,7 +6275,9 @@
         hudTimer = 0;
         updateHUD();
       }
+      tickIdleBanter(rawDelta);
 
+      updateFollowCamera(rawDelta);
       controls.update();
       renderer.render(scene, camera);
     }
@@ -5340,6 +6309,18 @@
       get issuedCallsigns() { return [...issuedCallsigns]; },
       get windShiftTimer() { return windShiftTimer; },
       shiftWind: () => applyRandomWindShift(),
+      focusAircraft: focusAircraftById,
+      banterNow: () => requestIdleBanter(),
+      live: {
+        get enabled() { return LIVE_TRAFFIC.enabled; },
+        get status() { return liveTrafficStatus; },
+        poll: pollLiveTraffic,
+      },
+      metar: {
+        get enabled() { return LIVE_WEATHER.enabled; },
+        get status() { return liveWeatherStatus; },
+        poll: pollLiveWeather,
+      },
       renderer,
       decideNow: runDecisionLoop,
       voice: {
