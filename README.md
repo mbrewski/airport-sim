@@ -172,7 +172,7 @@ The visual pass uses:
 - `voices/kokoro/voices-v1.0.bin` — Kokoro voice pack.
 - `voices/en_US-ryan-high.onnx` — Piper fallback voice model.
 - `voices/en_US-ryan-high.onnx.json` — Piper voice configuration.
-- `airport-sim-README.md` — this document.
+- `README.md` — this document.
 
 ## Validation
 
