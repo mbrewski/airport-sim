@@ -35,9 +35,18 @@ KOKORO_VOICES = os.environ.get(
     os.path.join(ROOT, "voices", "kokoro", "voices-v1.0.bin"),
 )
 KOKORO_VOICE = os.environ.get("KOKORO_VOICE", "am_michael")
-KOKORO_NORTH_VOICE = os.environ.get("KOKORO_NORTH_VOICE", "am_adam")
+KOKORO_NORTH_VOICE = os.environ.get("KOKORO_NORTH_VOICE", "am_onyx")
+KOKORO_PILOT_VOICES = tuple(
+    voice.strip()
+    for voice in os.environ.get(
+        "KOKORO_PILOT_VOICES",
+        "af_sarah,am_liam,af_bella,am_echo,af_nova,am_fenrir,af_nicole",
+    ).split(",")
+    if voice.strip()
+) or (KOKORO_VOICE,)
 PIPER_NORTH_VOICE = os.environ.get("PIPER_NORTH_VOICE", PIPER_VOICE)
-KOKORO_SPEED = float(os.environ.get("KOKORO_SPEED", "1.0"))
+PIPER_PILOT_VOICE = os.environ.get("PIPER_PILOT_VOICE", PIPER_VOICE)
+KOKORO_SPEED = float(os.environ.get("KOKORO_SPEED", "1.08"))
 TTS_ENGINE = os.environ.get("TTS_ENGINE", "kokoro").lower()
 PORT = int(os.environ.get("PORT", "8123"))
 TTS_CACHE = os.path.join(tempfile.gettempdir(), "airport-sim-tts")
@@ -213,8 +222,20 @@ class Handler(SimpleHTTPRequestHandler):
             "tower-north",
             KOKORO_NORTH_VOICE.lower(),
         } else "south"
-        kokoro_voice = KOKORO_NORTH_VOICE if controller == "north" else KOKORO_VOICE
-        piper_voice = PIPER_NORTH_VOICE if controller == "north" else PIPER_VOICE
+        pilot_index = None
+        if requested == "pilot":
+            pilot_index = 0
+        elif requested.startswith("pilot-"):
+            try:
+                pilot_index = max(1, int(requested.split("-", 1)[1])) - 1
+            except ValueError:
+                pilot_index = None
+        if pilot_index is not None:
+            kokoro_voice = KOKORO_PILOT_VOICES[pilot_index % len(KOKORO_PILOT_VOICES)]
+            piper_voice = PIPER_PILOT_VOICE
+        else:
+            kokoro_voice = KOKORO_NORTH_VOICE if controller == "north" else KOKORO_VOICE
+            piper_voice = PIPER_NORTH_VOICE if controller == "north" else PIPER_VOICE
         if not os.path.isfile(piper_voice):
             piper_voice = PIPER_VOICE
 
@@ -269,6 +290,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "engine": "kokoro" if use_kokoro else ("piper" if piper_installed() else None),
                     "voice": KOKORO_VOICE if use_kokoro else os.path.basename(PIPER_VOICE),
                     "north_voice": KOKORO_NORTH_VOICE if use_kokoro else os.path.basename(PIPER_NORTH_VOICE),
+                    "pilot_voices": list(KOKORO_PILOT_VOICES) if use_kokoro else [os.path.basename(PIPER_PILOT_VOICE)],
                     "kokoro_error": _kokoro_error,
                 },
             )
@@ -281,7 +303,8 @@ def warm_tts():
         try:
             load_kokoro()
             print(
-                f"Kokoro voices: {KOKORO_VOICE} / {KOKORO_NORTH_VOICE} "
+                f"Kokoro voices: {KOKORO_VOICE} / {KOKORO_NORTH_VOICE} / "
+                f"pilots {', '.join(KOKORO_PILOT_VOICES)} "
                 f"({os.path.basename(KOKORO_MODEL)})",
                 flush=True,
             )

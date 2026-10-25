@@ -1,32 +1,60 @@
 # Centennial KAPA — Airport Simulator
 
-A single-file Three.js airport simulation built around a stylized Centennial Airport (KAPA) layout. Three runways, parallel runway operations, procedural pavement, OSM-derived buildings, a five-aircraft fixed-wing fleet, and two independent helicopters are sequenced by a tower decision loop. Clearances are spoken locally through Kokoro-82M, with Piper retained as a fallback, and proxied by the bundled web server.
+A single-file Three.js airport simulation built around a stylized Centennial Airport (KAPA) layout. Three runways, parallel and crosswind operations, procedural pavement, OSM-derived buildings, a rolling five-aircraft fixed-wing population, and two independent helicopters are sequenced by a tower decision loop. Departures leave the airspace and are replaced by new unique-tail inbound aircraft. Clearances and pilot calls are spoken locally through Kokoro-82M, with Piper retained as a fallback, and proxied by the bundled web server.
 
 This is a visual simulation, not a navigation or flight-planning tool.
 
-## Run It
+## Build and Run at Home
 
-There is no frontend build step.
+There is no frontend build step and no Node/npm install. The simulator is static HTML and JavaScript; `serve.py` serves the files and provides the local TTS and Ollama proxy endpoints.
+
+### Prerequisites
+
+- `git`
+- Python 3.10 or newer; Python 3.12 is recommended for the Kokoro runtime
+- [`uv`](https://docs.astral.sh/uv/) for the isolated Kokoro environment
+- Internet access for Three.js and the aircraft GLBs loaded from CDNs
+- Optional: [Ollama](https://ollama.com/) for local-model ATC decisions; rules mode works without it
+
+### Clean checkout
 
 ```bash
-cd /home/mbrewski/develop/airport-sim
-python3 serve.py
-```
+git clone https://github.com/mbrewski/airport-sim.git
+cd airport-sim
 
-Open `http://localhost:8123/airport-sim.html`, or replace `localhost` with the machine's LAN IP. Opening the HTML directly with `file://` will not work because the simulator imports ES modules and calls the local TTS/chat endpoints.
-
-`python3 serve.py` detects the local Kokoro runtime and re-executes itself inside `.kokoro-venv` automatically. The server serves the static files, proxies `POST /api/chat` to Ollama on `127.0.0.1:11434`, and synthesizes `POST /api/tts` in-process. Remote devices therefore only need a browser.
-
-To rebuild the speech runtime from scratch:
-
-```bash
 uv venv --python 3.12 .kokoro-venv
 uv pip install --python .kokoro-venv/bin/python kokoro-onnx
+
 mkdir -p voices/kokoro
 curl -L -o voices/kokoro/kokoro-v1.0.int8.onnx \
   https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.int8.onnx
 curl -L -o voices/kokoro/voices-v1.0.bin \
   https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin
+```
+
+`serve.py` detects the local `.kokoro-venv` and re-executes itself inside it automatically. The model files are only needed for spoken ATC; the traffic simulation still runs without them.
+
+### Optional local model
+
+```bash
+ollama serve
+ollama pull qwen3.5-9b-64k
+```
+
+The default model is `qwen3.5-9b-64k:latest`. The browser calls `/api/chat`, which `serve.py` proxies to `http://127.0.0.1:11434`. If Ollama is not running, append `?ai=rules` to skip model startup and use the deterministic rule engine.
+
+### Start the simulator
+
+```bash
+python3 serve.py
+```
+
+Open `http://localhost:8123/airport-sim.html`. Replace `localhost` with the machine's LAN IP to use another device on the network. The server listens on `0.0.0.0` by default; set `PORT=8080 python3 serve.py` to use a different port.
+
+Opening the HTML directly with `file://` will not work because the simulator imports ES modules and calls the local TTS/chat endpoints. For a fast offline-style demo without Ollama, use:
+
+```text
+http://localhost:8123/airport-sim.html?scenario=fixed&ai=rules
 ```
 
 ## Airfield Layout
@@ -61,19 +89,23 @@ Weather chooses one primary runway from `17L`, `35R`, `10`, and `28`, then adds 
 - `?scenario=random` picks a runway plan and randomizes aircraft states.
 - `?scenario=fixed` uses wind `185°` at `8 kt`, with `17L` and `17R` active.
 
+During a run the field also changes wind on its own. Every 75–150 seconds the simulator tries a shift to a different primary runway, with a small heading offset and a new speed. The shift waits if anyone is taxiing, lining up, taking off, landing, on approach, or occupying a runway. Airborne traffic that was assigned a now-closed runway is cleared to request the new active set. Tower announces the new wind, the HUD log records it, and the windsock turns with the wind. `window.airport.shiftWind()` forces a shift from the console.
+
 Each active runway has its own traffic reservation. A departure or arrival on `17L` no longer blocks the parallel `17R`, while single-runway operations still serialize traffic. Inbound traffic has priority over departures, and a runway remains reserved until the arrival has exited.
 
 Taxi routes to `17R` and `35L` cross the active north-south runway. Aircraft stop at the hold-short point, request a crossing, and wait for a `CLEAR_CROSS` clearance before entering the runway. A crossing aircraft occupies the runway until it clears the far side, so departures and arrivals cannot use that runway during the crossing.
 
 ## ATC Voice
 
-Kokoro-82M uses `am_michael` for Tower South and `am_adam` for Tower North. South handles `17L`, `35R`, `10`, and `28`; North handles `17R` and `35L`. A second male controller is used only for the north-side runways. Both feeds share one transmission queue, so clearances never talk over each other.
+Kokoro-82M uses `am_michael` for Tower South and the deeper `am_onyx` for Tower North. South handles `17L`, `35R`, `10`, and `28`; North handles `17R` and `35L`. A second male controller is used only for the north-side runways. Both feeds share one transmission queue, so clearances never talk over each other.
 
-Piper `1.2.0` remains installed at `~/.local/piper/piper` with `voices/en_US-ryan-high.onnx` as a fallback. If Kokoro fails, or if `TTS_ENGINE=piper` is set, `serve.py` uses Piper instead. `TTS_ENGINE=kokoro` is the default. `KOKORO_VOICE`, `KOKORO_NORTH_VOICE`, and `KOKORO_SPEED` can override the south voice, north voice, and rate. `/api/tts` accepts `voice: "south"` or `voice: "north"`, and `/api/health` reports the active engine, south voice, and north voice.
+Each aircraft also has a distinct pilot voice. Pilots call the tower with taxi, departure, approach, and crossing requests, then read back the controller's clearance in the same voice. The default pilot cast is `af_sarah`, `am_liam`, `af_bella`, `am_echo`, `af_nova`, `am_fenrir`, and `af_nicole`, assigned consistently across the five fixed-wing aircraft and two helicopters.
 
-Browsers require a gesture before audio playback. Tap once to unlock ATC voice; the button changes from `ATC voice: tap` to `ATC voice on`, and the unlock step plays a radio check for each controller. Tap again to mute. Every `CLEAR_TAXI`, `CLEAR_TAKEOFF`, `CLEAR_APPROACH`, `CLEAR_CROSS`, and `HOLD` decision is spoken; `MONITOR` stays silent.
+Piper `1.2.0` remains installed at `~/.local/piper/piper` with `voices/en_US-ryan-high.onnx` as a fallback. If Kokoro fails, or if `TTS_ENGINE=piper` is set, `serve.py` uses Piper instead. `TTS_ENGINE=kokoro` is the default. `KOKORO_VOICE`, `KOKORO_NORTH_VOICE`, `KOKORO_PILOT_VOICES`, and `KOKORO_SPEED` can override the south voice, north voice, comma-separated pilot cast, and rate. `/api/tts` accepts `voice: "south"`, `voice: "north"`, or `voice: "pilot-1"` through `voice: "pilot-7"`; `/api/health` reports the active engine and voice lists.
 
-The server caches WAV files in `/tmp/airport-sim-tts`. The cache key includes the controller voice, so south and north versions of the same phrase are stored separately. Callsigns use NATO phonetics and runway numbers use spoken digits before synthesis. The browser plays returned WAVs through one reusable audio element with serialized playback.
+Browsers require a gesture before audio playback. Tap once anywhere to unlock ATC voice; the button changes from `ATC voice: tap` to `ATC voice on`, and the unlock step plays a radio check for each controller. Tap again to mute. Every `CLEAR_TAXI`, `CLEAR_TAKEOFF`, `CLEAR_APPROACH`, `CLEAR_CROSS`, and `HOLD` decision is spoken with the pilot request and readback surrounding the controller clearance; `MONITOR` stays silent.
+
+The server caches WAV files in `/tmp/airport-sim-tts`. The cache key includes the selected voice, so controller and pilot versions of the same phrase are stored separately. Callsigns use NATO phonetics and runway numbers use spoken digits before synthesis. The browser plays returned WAVs through one reusable audio element with serialized playback.
 
 ## Simulation
 
@@ -169,7 +201,10 @@ The speech endpoint can be checked independently:
 curl -s http://127.0.0.1:8123/api/health
 curl -s -H 'Content-Type: application/json' \
   --data '{"text":"Tower radio check.","voice":"north"}' \
-  -o /tmp/tts.wav http://127.0.0.1:8123/api/tts
+  -o /tmp/tts-north.wav http://127.0.0.1:8123/api/tts
+curl -s -H 'Content-Type: application/json' \
+  --data '{"text":"Tower, N5520T, ready to taxi.","voice":"pilot-1"}' \
+  -o /tmp/tts-pilot.wav http://127.0.0.1:8123/api/tts
 ```
 
 ## Controls

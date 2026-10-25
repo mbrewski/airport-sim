@@ -848,6 +848,13 @@
       activeRunway: '17L',
       activeRunways: ['17L', '17R'],
     };
+    let windsockProp = null;
+
+    function pointWindsock() {
+      if (!windsockProp) return;
+      const from = THREE.MathUtils.degToRad(WEATHER.windDirection);
+      windsockProp.rotation.y = from + Math.PI;
+    }
 
     // Five Alpha Ramp stands, clear of the real hangar footprints.
     const GATE_SLOTS = [255, 295, 335, 375, 415];
@@ -1987,7 +1994,8 @@
       placeProp('049-fuel-store', 578, -918, 0.22);
       placeProp('099-self-service-fuel-pump', 553, -866, 0.22);
       placeProp('050-radar-dish', 635, -1042, 0);
-      placeProp('052-windsock-mast', 158, -418, 0.4);
+      windsockProp = placeProp('052-windsock-mast', 158, -418, 0.4);
+      pointWindsock();
       placeProp('053-hold-short-sign', 28, -7, -0.1);
       placeProp('054-papi-unit', 42, -306, 3.05);
     }
@@ -2038,6 +2046,7 @@
         twin,
         jet,
       };
+      Object.assign(FLEET_MODELS, modelSources);
 
       setLoading(100, 'Tower is arranging the first shift…');
       const scenario = await startupPromise;
@@ -2046,6 +2055,7 @@
       WEATHER.windSpeed = scenario.windSpeed;
       WEATHER.activeRunway = scenario.activeRunway;
       WEATHER.activeRunways = scenario.activeRunways ?? activeRunwaysForWind(scenario.windDirection);
+      pointWindsock();
 
       const assignments = new Map(
         scenario.aircraft.map((aircraft) => [aircraft.id, aircraft]),
@@ -2221,6 +2231,34 @@
       ...(meta ?? {}),
     });
 
+    const FLEET_MODELS = {};
+    const PILOT_VOICE_OPTIONS = [
+      'pilot-1', 'pilot-2', 'pilot-3', 'pilot-4',
+      'pilot-5', 'pilot-6', 'pilot-7',
+    ];
+    const DYNAMIC_AIRCRAFT_TYPES = [
+      { type: 'TRAINER', typeClass: 'trainer', sourceKey: 'trainer', color: COLORS.trainer },
+      { type: 'LOW WING', typeClass: 'lowwing', sourceKey: 'lowwing', color: COLORS.lowwing },
+      { type: 'TWIN', typeClass: 'twin', sourceKey: 'twin', color: COLORS.twin },
+      { type: 'BIZJET', typeClass: 'jet', sourceKey: 'jet', color: COLORS.jet },
+      { type: 'TRAINER', typeClass: 'trainer2', sourceKey: 'trainer', color: COLORS.trainer2 },
+    ];
+    const TAIL_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const issuedCallsigns = new Set();
+    let nextAircraftSerial = 6;
+
+    function newUniqueCallsign() {
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const digits = randomInteger(100, 999);
+        const suffix = TAIL_LETTERS[randomInteger(0, TAIL_LETTERS.length - 1)];
+        const candidate = `N${digits}${suffix}`;
+        if (!issuedCallsigns.has(candidate)) return candidate;
+      }
+      let fallback = 1000;
+      while (issuedCallsigns.has(`N${fallback}`)) fallback += 1;
+      return `N${fallback}`;
+    }
+
     function activeRunwayCrossingId() {
       if (WEATHER.activeRunways.includes('17L')) return '17L';
       if (WEATHER.activeRunways.includes('35R')) return '35R';
@@ -2248,6 +2286,8 @@
         this.gate = spec.gate.clone();
         this.source = spec.source;
         this.initial = spec.initial;
+        this.pilotVoice = spec.pilotVoice ?? null;
+        issuedCallsigns.add(String(this.callsign).toUpperCase());
 
         this.state = 'PARKED';
         this.stateTime = 0;
@@ -2265,10 +2305,14 @@
         this.crossingCleared = null;
         this.crossingRequested = false;
         this.crossingActive = false;
+        this.departing = Boolean(spec.departing);
+        this.retired = false;
+        this.taxiBlocked = false;
 
         this.pos = new THREE.Vector3();
         this.heading = Math.PI;
         this.speed = 0;
+        this.verticalSpeed = 0;
         this.targetSpeed = 0;
         this.route = [];
         this.routeIndex = 0;
@@ -2369,6 +2413,9 @@
 
       setState(state) {
         if (this.state === state) return;
+        if (!['TAXI_OUT', 'TAXI_IN', 'HOLD_SHORT', 'LINEUP'].includes(state)) {
+          releaseTaxiLocks(this);
+        }
         this.state = state;
         this.stateTime = 0;
         this.refreshLabel(true);
@@ -2495,10 +2542,17 @@
             390,
             96,
           ),
+          routePoint(
+            runway.departureEnd.x + axis.x * 5200 + lateral.x * 420,
+            runway.departureEnd.z + axis.z * 5200 + lateral.z * 420,
+            WORLD.orbitAltitude,
+            110,
+          ),
         ], 78);
         this.flightTime = 0;
         this.requestApproach = false;
         this.patternHold = false;
+        this.departing = true;
       }
 
       buildApproachRoute(runwayId) {
@@ -2516,6 +2570,7 @@
         this.setRoute(approach, 104);
         this.patternHold = false;
         this.requestApproach = true;
+        this.departing = false;
         this.playOneShot('gear-open');
         this.playOneShot('bay-open');
       }
@@ -2562,7 +2617,7 @@
         this.flightTime = 0;
         this.goAroundTimer = 10;
         this.speed = Math.max(this.speed, 72);
-        this.pos.y = Math.max(this.pos.y, 55);
+        this.verticalSpeed = Math.max(this.verticalSpeed, 3);
         this.visualPitch = -0.08;
         this.buildGoAroundRoute(runwayId);
       }
@@ -2654,7 +2709,6 @@
         const z = this.orbitCenter.z + Math.sin(this.orbitAngle) * this.orbitRadius;
         this.pos.x = x;
         this.pos.z = z;
-        this.pos.y += (this.orbitAltitude - this.pos.y) * Math.min(1, dt * 0.8);
         this.heading = this.orbitHeadingAt(this.orbitAngle);
       }
 
@@ -2665,6 +2719,30 @@
         this.orbitDirection = this.orbitDirection || 1;
         this.orbitAltitude = Math.max(this.pos.y, WORLD.orbitAltitude);
         this.clearRoute();
+      }
+
+      updateAltitude(dt, targetY, options = {}) {
+        const maxClimb = options.maxClimb ?? 7.5;
+        const maxDescent = options.maxDescent ?? 24;
+        const acceleration = options.acceleration ?? 4;
+        const error = targetY - this.pos.y;
+        if (Math.abs(error) < 0.08 && Math.abs(this.verticalSpeed) < 0.3) {
+          this.verticalSpeed = 0;
+          return;
+        }
+        const desired = THREE.MathUtils.clamp(error * 1.4, -maxDescent, maxClimb);
+        this.verticalSpeed += THREE.MathUtils.clamp(
+          desired - this.verticalSpeed,
+          -acceleration * dt,
+          acceleration * dt,
+        );
+        const nextY = this.pos.y + this.verticalSpeed * dt;
+        if (nextY <= 0.035 && targetY <= 0.035) {
+          this.pos.y = 0.035;
+          this.verticalSpeed = 0;
+        } else {
+          this.pos.y = Math.max(0.035, nextY);
+        }
       }
 
       moveRoute(dt) {
@@ -2725,13 +2803,11 @@
             if (target.crossingPhase === 'clear') this.finishCrossing();
             this.routeIndex += 1;
             if (this.routeIndex >= this.route.length) {
-              this.pos.y += (target.y - this.pos.y) * Math.min(1, dt * 2.8);
               return true;
             }
           } else {
             this.pos.x += Math.sin(this.heading) * step;
             this.pos.z += Math.cos(this.heading) * step;
-            this.pos.y += (target.y - this.pos.y) * Math.min(1, dt * 1.9);
             return false;
           }
         }
@@ -2750,6 +2826,28 @@
         this.waitTime += dt;
 
         if (this.mixer) this.mixer.update(dt);
+
+        if (['TAXI_OUT', 'TAXI_IN', 'HOLD_SHORT', 'LINEUP'].includes(this.state)) {
+          const claimed = claimTaxiReservation(this);
+          if (!claimed && this.state !== 'HOLD_SHORT') {
+            if (!this.taxiBlocked) {
+              console.info(`[TAXI] ${this.callsign} holding for traffic`);
+            }
+            this.taxiBlocked = true;
+            this.holdReason = 'Taxiway occupied';
+            this.speed = THREE.MathUtils.damp(this.speed, 0, 7, dt);
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 6, dt);
+            if (this.actions['wheel-roll']) this.actions['wheel-roll'].timeScale = 0;
+            this.syncTransform();
+            this.refreshLabel(false, dt);
+            return;
+          }
+          if (this.taxiBlocked) {
+            console.info(`[TAXI] ${this.callsign} resumes`);
+            this.taxiBlocked = false;
+            this.holdReason = '';
+          }
+        }
 
         switch (this.state) {
           case 'PARKED':
@@ -2821,6 +2919,7 @@
               this.holdsRunway = false;
               this.runwayId = null;
               this.flightTime = 0;
+              this.departing = false;
               this.finishCrossing();
               this.parkedDwell = 12 + Math.random() * 16;
             }
@@ -2881,6 +2980,7 @@
           this.onRunway = false;
           this.orbitDirection = runway.pattern;
           this.orbitAltitude = WORLD.orbitAltitude;
+          this.verticalSpeed = Math.max(this.verticalSpeed, 5.2);
           this.buildClimbRoute(this.runwayId);
           this.playOneShot('gear-close');
           this.playOneShot('bay-close');
@@ -2895,7 +2995,13 @@
 
         if (this.route.length > 0) {
           if (this.moveRoute(dt)) {
+            const wasDeparting = this.departing;
             this.clearRoute();
+            if (wasDeparting) {
+              this.retired = true;
+              this.root.visible = false;
+              return;
+            }
             this.enterOrbitFromCurrentPosition();
           }
         } else {
@@ -2903,10 +3009,10 @@
           this.updateOrbitPosition(dt);
         }
 
-        this.pos.y += (this.orbitAltitude - this.pos.y) * Math.min(1, dt * 0.65);
+        this.updateAltitude(dt, this.orbitAltitude, { maxClimb: 7.5, acceleration: 3.5 });
         this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 3, dt);
 
-        if (!this.requestApproach && this.flightTime > 16) {
+        if (!this.departing && !this.requestApproach && this.flightTime > 16) {
           this.requestApproach = true;
         }
       }
@@ -2929,11 +3035,18 @@
           this.goAround('runway occupied on short final');
           return;
         }
+        const targetAltitude = this.route[this.routeIndex]?.y ?? 0.035;
+        this.updateAltitude(dt, targetAltitude, {
+          maxClimb: 6,
+          maxDescent: 28,
+          acceleration: 7,
+        });
         if (this.moveRoute(dt)) {
           this.setState('LANDING');
           this.holdsRunway = true;
           this.speed = Math.max(this.speed, 28);
           this.pos.y = 0.035;
+          this.verticalSpeed = 0;
           this.visualPitch = 0;
         }
         this.visualPitch = THREE.MathUtils.damp(this.visualPitch, -0.035, 4, dt);
@@ -2941,6 +3054,7 @@
 
       updateLanding(dt) {
         const runway = RUNWAYS[this.runwayId] ?? RUNWAYS['17L'];
+        this.verticalSpeed = 0;
         const axis = runway.axis;
         const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
         this.heading = turnToward(this.heading, runway.heading, 1.2 * dt);
@@ -2989,6 +3103,9 @@
       }
 
       get displayState() {
+        if (this.taxiBlocked && (this.state === 'TAXI_OUT' || this.state === 'TAXI_IN')) {
+          return 'HOLD POSITION';
+        }
         if (this.state === 'AIRBORNE' && this.goAroundTimer > 0) return 'GO AROUND';
         if (this.crossingActive && this.crossingRunwayId) {
           return `CROSSING ${this.crossingRunwayId}`;
@@ -2998,6 +3115,192 @@
         }
         if (this.state === 'AIRBORNE' && this.patternHold) return 'HOLDING';
         return this.state.replaceAll('_', ' ');
+      }
+    }
+
+    const taxiLocks = new Map();
+
+    function taxiNodeKey(x, z) {
+      return `n:${Math.round(x * 10)}:${Math.round(z * 10)}`;
+    }
+
+    function taxiEdgeKey(a, b) {
+      const ak = `${Math.round(a.x * 10)}:${Math.round(a.z * 10)}`;
+      const bk = `${Math.round(b.x * 10)}:${Math.round(b.z * 10)}`;
+      return ak < bk ? `e:${ak}|${bk}` : `e:${bk}|${ak}`;
+    }
+
+    function taxiKeysFor(aircraft) {
+      if (aircraft.state === 'HOLD_SHORT') {
+        return [taxiNodeKey(aircraft.pos.x, aircraft.pos.z)];
+      }
+      if (!['TAXI_OUT', 'TAXI_IN', 'LINEUP'].includes(aircraft.state)) return [];
+      if (aircraft.route.length === 0) return [];
+      const index = Math.min(aircraft.routeIndex, aircraft.route.length - 1);
+      const target = aircraft.route[index];
+      const previous = index > 0
+        ? aircraft.route[index - 1]
+        : { x: aircraft.pos.x, z: aircraft.pos.z };
+      const keys = [
+        taxiNodeKey(previous.x, previous.z),
+        taxiNodeKey(target.x, target.z),
+      ];
+      if (Math.hypot(target.x - previous.x, target.z - previous.z) > 0.5) {
+        keys.push(taxiEdgeKey(previous, target));
+      }
+      return keys;
+    }
+
+    function releaseTaxiLocks(aircraft) {
+      for (const [key, owner] of taxiLocks) {
+        if (owner === aircraft.id) taxiLocks.delete(key);
+      }
+    }
+
+    function claimTaxiReservation(aircraft) {
+      const keys = taxiKeysFor(aircraft);
+      for (const key of keys) {
+        const owner = taxiLocks.get(key);
+        if (owner && owner !== aircraft.id) return false;
+      }
+      const keep = new Set(keys);
+      for (const [key, owner] of taxiLocks) {
+        if (owner === aircraft.id && !keep.has(key)) taxiLocks.delete(key);
+      }
+      for (const key of keys) taxiLocks.set(key, aircraft.id);
+      return true;
+    }
+
+    function chooseArrivalEntryAngle() {
+      const traffic = aircraftList.filter(
+        (aircraft) => aircraft.state === 'AIRBORNE' || aircraft.state === 'APPROACH',
+      );
+      if (traffic.length === 0) return Math.random() * Math.PI * 2;
+      let bestAngle = 0;
+      let bestClearance = -Infinity;
+      for (let index = 0; index < 16; index += 1) {
+        const angle = (index / 16) * Math.PI * 2;
+        const x = WORLD.orbitCenterX + Math.cos(angle) * 5200;
+        const z = WORLD.orbitCenterZ + Math.sin(angle) * 5200;
+        const clearance = Math.min(
+          ...traffic.map((aircraft) => Math.hypot(aircraft.pos.x - x, aircraft.pos.z - z)),
+        );
+        const score = clearance + Math.random() * 120;
+        if (score > bestClearance) {
+          bestClearance = score;
+          bestAngle = angle;
+        }
+      }
+      return bestAngle;
+    }
+
+    function nextArrivalGate() {
+      const used = new Set(
+        aircraftList
+          .filter((aircraft) => aircraft.state === 'PARKED' || aircraft.state === 'TAXI_IN')
+          .map(gateSlotFor),
+      );
+      const free = GATE_SLOTS.findIndex((_slot, index) => !used.has(index));
+      const slot = free >= 0 ? free : (nextAircraftSerial - 6) % GATE_SLOTS.length;
+      return new THREE.Vector3(GATE_SLOTS[slot], 0, WORLD.gateZ);
+    }
+
+    function spawnArrivalAircraft() {
+      const availableTypes = DYNAMIC_AIRCRAFT_TYPES.filter(
+        (type) => Boolean(FLEET_MODELS[type.sourceKey]),
+      );
+      if (availableTypes.length === 0) return null;
+
+      const choice = availableTypes[randomInteger(0, availableTypes.length - 1)];
+      const serial = nextAircraftSerial;
+      nextAircraftSerial += 1;
+      const entryAngle = chooseArrivalEntryAngle();
+      const orbitDirection = Math.random() < 0.5 ? -1 : 1;
+      const targetAngle = entryAngle + orbitDirection * 0.28;
+      const spec = {
+        id: `ac-${serial}`,
+        callsign: newUniqueCallsign(),
+        type: choice.type,
+        typeClass: choice.typeClass,
+        priority: randomInteger(1, 2),
+        color: choice.color,
+        gate: nextArrivalGate(),
+        source: FLEET_MODELS[choice.sourceKey],
+        pilotVoice: PILOT_VOICE_OPTIONS[(serial - 6) % PILOT_VOICE_OPTIONS.length],
+        initial: {
+          state: 'AIRBORNE',
+          orbitAngle: targetAngle,
+          flightTime: 10,
+          wait: 0,
+        },
+      };
+
+      const aircraft = new Aircraft(spec);
+      const entryRadius = 5600;
+      const joinRadius = WORLD.orbitRadius;
+      aircraft.pos.set(
+        WORLD.orbitCenterX + Math.cos(entryAngle) * entryRadius,
+        WORLD.orbitAltitude,
+        WORLD.orbitCenterZ + Math.sin(entryAngle) * entryRadius,
+      );
+      aircraft.orbitAngle = targetAngle;
+      aircraft.orbitDirection = orbitDirection;
+      aircraft.flightTime = 10;
+      aircraft.speed = WORLD.cruiseSpeed;
+      aircraft.verticalSpeed = 0;
+      aircraft.departing = false;
+      aircraft.requestApproach = false;
+      aircraft.patternHold = false;
+      aircraft.holdsRunway = false;
+      aircraft.runwayId = null;
+
+      const firstAngle = entryAngle + orbitDirection * 0.06;
+      const firstTarget = routePoint(
+        WORLD.orbitCenterX + Math.cos(firstAngle) * 3200,
+        WORLD.orbitCenterZ + Math.sin(firstAngle) * 3200,
+        WORLD.orbitAltitude,
+        105,
+      );
+      const joinTarget = routePoint(
+        WORLD.orbitCenterX + Math.cos(targetAngle) * joinRadius,
+        WORLD.orbitCenterZ + Math.sin(targetAngle) * joinRadius,
+        WORLD.orbitAltitude,
+        105,
+      );
+      aircraft.setRoute([firstTarget, joinTarget], 105);
+      aircraft.heading = Math.atan2(firstTarget.x - aircraft.pos.x, firstTarget.z - aircraft.pos.z);
+      aircraft.syncTransform();
+      aircraft.addToScene(scene);
+      aircraftList.push(aircraft);
+      aircraft.refreshLabel(true);
+      announceInboundAircraft(aircraft);
+      console.info(
+        `[INBOUND] ${aircraft.callsign} entered the airspace from ` +
+          `${Math.round((entryAngle * 180) / Math.PI).toString().padStart(3, '0')}°`,
+      );
+      return aircraft;
+    }
+
+    function disposeAircraft(aircraft) {
+      scene.remove(aircraft.root);
+      aircraft.mixer?.stopAllAction();
+      aircraft.label?.texture?.dispose();
+      aircraft.label?.sprite?.material?.dispose();
+      aircraft.ring?.geometry?.dispose();
+      aircraft.ring?.material?.dispose();
+    }
+
+    function flushRetiredAircraft() {
+      const retired = aircraftList.filter((aircraft) => aircraft.retired);
+      if (retired.length === 0) return;
+      for (const aircraft of retired) {
+        releaseTaxiLocks(aircraft);
+        const index = aircraftList.indexOf(aircraft);
+        if (index >= 0) aircraftList.splice(index, 1);
+        disposeAircraft(aircraft);
+      }
+      for (let index = 0; index < retired.length; index += 1) {
+        spawnArrivalAircraft();
       }
     }
 
@@ -3406,6 +3709,10 @@
     let decisionInFlight = false;
     let simulationTime = 0;
     let startupScenario = null;
+    const WIND_SHIFT_MIN_SECONDS = 75;
+    const WIND_SHIFT_MAX_SECONDS = 150;
+    let windShiftTimer = randomBetween(WIND_SHIFT_MIN_SECONDS, WIND_SHIFT_MAX_SECONDS);
+    let windBag = [];
 
     const STARTUP_AIRCRAFT = [
       { id: 'ac-1', callsign: 'N5520T', type: 'TRAINER' },
@@ -3435,6 +3742,66 @@
       const primary = activeRunwayForWind(direction);
       const mate = PARALLEL_MATE[primary];
       return mate ? [primary, mate] : [primary];
+    }
+
+    function canShiftWind() {
+      if (aircraftList.some((aircraft) => (
+        aircraft.holdsRunway
+        || aircraft.crossingRequested
+        || aircraft.crossingActive
+        || ['TAXI_OUT', 'HOLD_SHORT', 'LINEUP', 'TAKEOFF', 'LANDING', 'APPROACH']
+          .includes(aircraft.state)
+      ))) {
+        return false;
+      }
+      return WEATHER.activeRunways.every((runwayId) => !runwayOccupied(runwayId));
+    }
+
+    function nextWindRunway() {
+      const current = WEATHER.activeRunway;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (windBag.length === 0) windBag = shuffledCopy(RUNWAY_CANDIDATES);
+        const index = windBag.findIndex((runwayId) => runwayId !== current);
+        if (index >= 0) return windBag.splice(index, 1)[0];
+        windBag.length = 0;
+      }
+      return RUNWAY_CANDIDATES.find((runwayId) => runwayId !== current)
+        ?? RUNWAY_CANDIDATES[0];
+    }
+
+    function retargetAirborneForNewWind() {
+      for (const aircraft of aircraftList) {
+        if (aircraft.state !== 'AIRBORNE' || aircraft.departing) continue;
+        if (aircraft.runwayId && WEATHER.activeRunways.includes(aircraft.runwayId)) continue;
+        aircraft.runwayId = null;
+        aircraft.holdsRunway = false;
+        aircraft.patternHold = false;
+        if (aircraft.flightTime > 16) aircraft.requestApproach = true;
+      }
+    }
+
+    function applyRandomWindShift() {
+      if (!canShiftWind()) return false;
+      const primary = nextWindRunway();
+      const direction = Math.round(
+        (RUNWAY_WIND_HEADINGS[primary] + randomBetween(-18, 18) + 360) % 360,
+      );
+      const speed = randomInteger(4, 13);
+      WEATHER.windDirection = direction;
+      WEATHER.windSpeed = speed;
+      WEATHER.activeRunway = activeRunwayForWind(direction);
+      WEATHER.activeRunways = activeRunwaysForWind(direction);
+      retargetAirborneForNewWind();
+      pointWindsock();
+      console.info(
+        `%c[WIND] %cShifted to ${String(direction).padStart(3, '0')}° at ${speed} kt ` +
+          `· RWY ${WEATHER.activeRunways.join('/')}`,
+        'color:#67d7ff;font-weight:700',
+        'color:#9eb1c3',
+      );
+      renderWindShift(WEATHER.activeRunway, direction, speed);
+      announceWindShift(WEATHER.activeRunway, direction, speed);
+      return true;
     }
 
     function runwayFromWind() {
@@ -3840,7 +4207,11 @@
     }
 
     function approachRunwayFor(aircraft) {
-      if (aircraft.runwayId && !runwayOccupied(aircraft.runwayId)) {
+      if (
+        aircraft.runwayId
+        && WEATHER.activeRunways.includes(aircraft.runwayId)
+        && !runwayOccupied(aircraft.runwayId)
+      ) {
         return aircraft.runwayId;
       }
       return freeActiveRunways()[0] ?? WEATHER.activeRunway;
@@ -4028,20 +4399,49 @@
     // }
     // The adapter is intentionally boring: swap endpoint/model and the rest of
     // the simulation continues to work unchanged.
+    function firstJsonObject(text) {
+      for (let start = text.indexOf('{'); start >= 0; start = text.indexOf('{', start + 1)) {
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        for (let index = start; index < text.length; index += 1) {
+          const char = text[index];
+          if (inString) {
+            if (escaped) escaped = false;
+            else if (char === '\\') escaped = true;
+            else if (char === '"') inString = false;
+            continue;
+          }
+          if (char === '"') inString = true;
+          else if (char === '{') depth += 1;
+          else if (char === '}') {
+            depth -= 1;
+            if (depth === 0) return text.slice(start, index + 1);
+          }
+        }
+      }
+      return null;
+    }
+
     function parseModelJson(content) {
-      if (content && typeof content === 'object') return content;
+      if (content && typeof content === 'object') {
+        return Array.isArray(content)
+          ? content.find((item) => item && typeof item === 'object' && !Array.isArray(item)) ?? null
+          : content;
+      }
       const text = String(content ?? '').trim()
-        .replace(/^```(?:json)?\s*/i, '')
-        .replace(/```$/i, '')
+        .replace(/```(?:json)?/gi, '')
         .trim();
       try {
-        return JSON.parse(text);
+        const parsed = JSON.parse(text);
+        return Array.isArray(parsed)
+          ? parsed.find((item) => item && typeof item === 'object' && !Array.isArray(item)) ?? null
+          : parsed;
       } catch {
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if (start >= 0 && end > start) {
+        const candidate = firstJsonObject(text);
+        if (candidate) {
           try {
-            return JSON.parse(text.slice(start, end + 1));
+            return JSON.parse(candidate);
           } catch {
             // Fall through to the descriptive error below.
           }
@@ -4064,6 +4464,8 @@
         'Only issue CLEAR_CROSS for an aircraft with requestCrossing true and crossingRunway set, when that runway is not busy.',
         'HOLD may include an aircraftId or omit it.',
         'Use MONITOR when no clearance is appropriate.',
+        'Return exactly one JSON object for exactly one decision.',
+        'Never return an array, multiple objects, JSON lines, markdown, or any text outside that one object.',
         'Return ONLY compact JSON with keys: action, aircraftId, runway, reason.',
         'Valid actions: CLEAR_TAXI, CLEAR_TAKEOFF, CLEAR_APPROACH, CLEAR_CROSS, HOLD, MONITOR.',
         'Reason must be one concise sentence suitable for an on-screen log.',
@@ -4083,6 +4485,7 @@
               stream: false,
               format: 'json',
               think: false,
+              options: { temperature: 0.1, num_predict: 220 },
               messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userPrompt },
@@ -4360,6 +4763,15 @@
       Z: 'Zulu',
     };
     const SPOKEN_DIGITS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'niner'];
+    const PILOT_VOICE_BY_AIRCRAFT = {
+      'ac-1': 'pilot-1',
+      'ac-2': 'pilot-2',
+      'ac-3': 'pilot-3',
+      'ac-4': 'pilot-4',
+      'ac-5': 'pilot-5',
+      'hel-1': 'pilot-6',
+      'hel-2': 'pilot-7',
+    };
 
     let voiceEnabled = true;
     let voiceUnlocked = false;
@@ -4384,6 +4796,12 @@
       }).join(' ');
     }
 
+    function pilotVoiceFor(aircraft) {
+      return aircraft?.pilotVoice
+        ?? PILOT_VOICE_BY_AIRCRAFT[aircraft?.id]
+        ?? PILOT_VOICE_OPTIONS[0];
+    }
+
     function buildTransmission(decision, aircraft, controller) {
       const who = aircraft ? speakCallsign(aircraft.callsign) : 'Field';
       const lead = controller.id === 'north' ? 'Tower North, ' : '';
@@ -4400,10 +4818,62 @@
       return null;
     }
 
+    function buildPilotRequest(decision, aircraft, controller) {
+      if (!aircraft) return null;
+      const who = speakCallsign(aircraft.callsign);
+      const tower = controller.id === 'north' ? 'Tower North' : 'Tower';
+      const runway = `runway ${speakRunway(decision.runway ?? WEATHER.activeRunway)}`;
+      if (decision.action === 'CLEAR_TAXI') return `${tower}, ${who}, ready to taxi.`;
+      if (decision.action === 'CLEAR_TAKEOFF') return `${tower}, ${who}, ready for departure.`;
+      if (decision.action === 'CLEAR_APPROACH') return `${tower}, ${who}, request approach.`;
+      if (decision.action === 'CLEAR_CROSS') return `${tower}, ${who}, request crossing ${runway}.`;
+      return null;
+    }
+
+    function buildPilotReadback(decision, aircraft, controller) {
+      if (!aircraft) return null;
+      const who = speakCallsign(aircraft.callsign);
+      const tower = controller.id === 'north' ? 'Tower North' : 'Tower';
+      const runway = `runway ${speakRunway(decision.runway ?? WEATHER.activeRunway)}`;
+      if (decision.action === 'CLEAR_TAXI') return `${tower}, taxi to ${runway}, ${who}.`;
+      if (decision.action === 'CLEAR_TAKEOFF') return `${tower}, cleared for takeoff ${runway}, ${who}.`;
+      if (decision.action === 'CLEAR_APPROACH') return `${tower}, cleared for approach ${runway}, ${who}.`;
+      if (decision.action === 'CLEAR_CROSS') return `${tower}, cleared to cross ${runway}, ${who}.`;
+      if (decision.action === 'HOLD') {
+        const holding = aircraft.state === 'AIRBORNE'
+          ? 'holding in the pattern'
+          : `holding short of ${runway}`;
+        return `${tower}, ${holding}, ${who}.`;
+      }
+      return null;
+    }
+
     function queueRadioChecks() {
-      speechQueue.unshift({ text: 'Tower North radio check.', controller: 'north' });
-      speechQueue.unshift({ text: 'Tower radio check.', controller: 'south' });
-      while (speechQueue.length > 6) speechQueue.pop();
+      speechQueue.unshift({ text: 'Tower North radio check.', voice: 'north', role: 'controller' });
+      speechQueue.unshift({ text: 'Tower radio check.', voice: 'south', role: 'controller' });
+      while (speechQueue.length > 7) speechQueue.pop();
+    }
+
+    function announceWindShift(runway, direction, speed) {
+      if (!voiceEnabled) return;
+      const controller = controllerForRunway(runway);
+      const spokenDirection = speakCallsign(String(direction).padStart(3, '0'));
+      const spokenSpeed = speakCallsign(String(speed));
+      const text = `Centennial wind now ${spokenDirection} at ${spokenSpeed}, ` +
+        `runway ${speakRunway(runway)} in use.`;
+      speechQueue.push({ text, voice: controller.id, role: 'controller' });
+      while (speechQueue.length > 8) speechQueue.shift();
+      pumpSpeech();
+    }
+
+    function announceInboundAircraft(aircraft) {
+      const text = `Tower, ${speakCallsign(aircraft.callsign)}, inbound for landing.`;
+      renderPilotCall(aircraft, text);
+      console.info(`[RADIO] ${aircraft.callsign}: inbound for landing`);
+      if (!voiceEnabled) return;
+      speechQueue.push({ text, voice: pilotVoiceFor(aircraft), role: 'pilot' });
+      while (speechQueue.length > 8) speechQueue.shift();
+      pumpSpeech();
     }
 
     function announceDecision(decision, aircraft) {
@@ -4411,8 +4881,13 @@
       const controller = controllerForRunway(decision.runway ?? WEATHER.activeRunway);
       const transmission = buildTransmission(decision, aircraft, controller);
       if (!transmission) return;
-      speechQueue.push({ text: transmission, controller: controller.id });
-      if (speechQueue.length > 4) speechQueue.shift();
+      const pilotVoice = pilotVoiceFor(aircraft);
+      const request = buildPilotRequest(decision, aircraft, controller);
+      const readback = buildPilotReadback(decision, aircraft, controller);
+      if (request) speechQueue.push({ text: request, voice: pilotVoice, role: 'pilot' });
+      speechQueue.push({ text: transmission, voice: controller.id, role: 'controller' });
+      if (readback) speechQueue.push({ text: readback, voice: pilotVoice, role: 'pilot' });
+      while (speechQueue.length > 8) speechQueue.shift();
       pumpSpeech();
     }
 
@@ -4504,7 +4979,7 @@
       voiceBusy = true;
       const entry = speechQueue.shift();
       const text = typeof entry === 'string' ? entry : entry.text;
-      const voice = typeof entry === 'string' ? 'south' : (entry.controller ?? 'south');
+      const voice = typeof entry === 'string' ? 'south' : (entry.voice ?? entry.controller ?? 'south');
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
       let audioUrl = null;
@@ -4613,6 +5088,39 @@
       feedEl.prepend(entry);
       while (feedEl.children.length > 9) feedEl.lastElementChild.remove();
       decisionCountEl.textContent = `#${String(number).padStart(3, '0')}`;
+    }
+
+    function renderWindShift(runway, direction, speed) {
+      const entry = document.createElement('article');
+      entry.className = 'log-entry';
+      entry.style.borderLeftColor = '#67d7ff';
+      entry.innerHTML = `
+        <div class="log-top">
+          <span class="log-time">T+${formatSimTime(simulationTime)}</span>
+          <span class="log-action" style="color:#67d7ff">WIND SHIFT</span>
+          <span class="log-who">FIELD</span>
+        </div>
+        <p class="log-reason">Wind ${String(direction).padStart(3, '0')}° at ${speed} kt. ` +
+          `Runway ${WEATHER.activeRunways.join('/')} in use.</p>
+      `;
+      feedEl.prepend(entry);
+      while (feedEl.children.length > 9) feedEl.lastElementChild.remove();
+    }
+
+    function renderPilotCall(aircraft, text) {
+      const entry = document.createElement('article');
+      entry.className = 'log-entry';
+      entry.style.borderLeftColor = '#82b9ff';
+      entry.innerHTML = `
+        <div class="log-top">
+          <span class="log-time">T+${formatSimTime(simulationTime)}</span>
+          <span class="log-action" style="color:#82b9ff">INBOUND</span>
+          <span class="log-who">${aircraft.callsign}</span>
+        </div>
+        <p class="log-reason">${escapeHTML(text)}</p>
+      `;
+      feedEl.prepend(entry);
+      while (feedEl.children.length > 9) feedEl.lastElementChild.remove();
     }
 
     function updateHUD(force = false) {
@@ -4736,7 +5244,7 @@
     document.addEventListener('pointerdown', (event) => {
       if (voiceUnlocked || !voiceEnabled) return;
       const viaVoiceButton = Boolean(event.target.closest('#btn-voice'));
-      if (viaVoiceButton) queueRadioChecks();
+      queueRadioChecks();
       unlockVoice();
       if (viaVoiceButton) suppressVoiceToggle = true;
     }, true);
@@ -4777,8 +5285,16 @@
         simulationTime += dt;
 
         for (const aircraft of aircraftList) aircraft.update(dt);
+        flushRetiredAircraft();
         for (const helicopter of helicopterList) helicopter.update(dt);
         for (const vehicle of groundVehicles) vehicle.update(dt);
+
+        windShiftTimer -= dt;
+        if (windShiftTimer <= 0) {
+          windShiftTimer = applyRandomWindShift()
+            ? randomBetween(WIND_SHIFT_MIN_SECONDS, WIND_SHIFT_MAX_SECONDS)
+            : 4;
+        }
 
         decisionTimer -= dt;
         if (decisionTimer <= 0 && !decisionInFlight) {
@@ -4821,6 +5337,9 @@
       aiConfig: AI_CONFIG,
       weather: WEATHER,
       get startup() { return startupScenario; },
+      get issuedCallsigns() { return [...issuedCallsigns]; },
+      get windShiftTimer() { return windShiftTimer; },
+      shiftWind: () => applyRandomWindShift(),
       renderer,
       decideNow: runDecisionLoop,
       voice: {
@@ -4829,10 +5348,19 @@
         get busy() { return voiceBusy; },
         get playing() { return Boolean(voiceAudio && !voiceAudio.paused && !voiceAudio.ended); },
         get queue() { return speechQueue.map((item) => (typeof item === 'string' ? item : item.text)); },
+        get entries() {
+          return speechQueue.map((item) => (
+            typeof item === 'string'
+              ? { text: item, voice: 'south', role: 'controller' }
+              : { text: item.text, voice: item.voice ?? item.controller ?? 'south', role: item.role ?? 'controller' }
+          ));
+        },
         get controllers() { return Object.values(CONTROLLERS).map((controller) => controller.id); },
         announce: (text, options = {}) => {
-          const controller = options.controller === 'north' ? 'north' : 'south';
-          speechQueue.push({ text: String(text), controller });
+          const voice = options.voice
+            ?? (options.controller === 'north' ? 'north' : 'south');
+          const role = options.role === 'pilot' ? 'pilot' : 'controller';
+          speechQueue.push({ text: String(text), voice, role });
           pumpSpeech();
         },
       },
