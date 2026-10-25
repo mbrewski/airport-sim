@@ -866,7 +866,7 @@
       maxAirborne: 16,
       maxAgl: 2800,
       maxGs: 145,
-      maxRange: 14000,
+      maxRange: 20000,
     };
     let liveTrafficStatus = LIVE_TRAFFIC.enabled ? 'connecting' : 'off';
     let livePollTimer = 0;
@@ -1041,13 +1041,13 @@
     sceneHost.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x1b2835, 0.00011);
+    scene.fog = new THREE.FogExp2(0x1b2835, 0.00006);
 
     const camera = new THREE.PerspectiveCamera(
       50,
       window.innerWidth / window.innerHeight,
       0.2,
-      16000,
+      42000,
     );
     const HOME_VIEW = {
       position: new THREE.Vector3(3150, 2350, 3250),
@@ -1060,7 +1060,7 @@
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
     controls.minDistance = 25;
-    controls.maxDistance = 9000;
+    controls.maxDistance = 18000;
     controls.maxPolarAngle = Math.PI * 0.495;
     controls.autoRotateSpeed = 0.22;
     controls.update();
@@ -1170,7 +1170,7 @@
       const texture = new THREE.CanvasTexture(canvas);
       texture.wrapS = THREE.RepeatWrapping;
       texture.wrapT = THREE.RepeatWrapping;
-      texture.repeat.set(600, 600);
+      texture.repeat.set(1400, 1400);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
       return texture;
@@ -1178,7 +1178,7 @@
 
     function addGround() {
       const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(12000, 12000),
+        new THREE.PlaneGeometry(28000, 28000),
         new THREE.MeshStandardMaterial({
           map: makeGrassTexture(),
           color: 0xffffff,
@@ -2007,7 +2007,7 @@
     }
 
     function addTreeLine() {
-      const count = 760;
+      const count = 1600;
       const trunkGeometry = new THREE.CylinderGeometry(0.22, 0.48, 1, 5);
       const crownGeometry = new THREE.ConeGeometry(1, 1, 6);
       const trunkMaterial = new THREE.MeshStandardMaterial({
@@ -2025,9 +2025,9 @@
       const dummy = new THREE.Object3D();
       let placed = 0;
 
-      for (let attempt = 0; attempt < 24000 && placed < count; attempt += 1) {
+      for (let attempt = 0; attempt < 48000 && placed < count; attempt += 1) {
         const angle = Math.random() * Math.PI * 2;
-        const radius = 2100 + Math.random() * 4400;
+        const radius = 2400 + Math.random() * 10600;
         const x = WORLD.centerX + Math.cos(angle) * radius;
         const z = WORLD.centerZ + Math.sin(angle) * radius;
 
@@ -2786,18 +2786,30 @@
       buildApproachRoute(runwayId) {
         const runway = RUNWAYS[runwayId];
         const back = runway.axis.clone().negate();
-        const approach = [
-          routePoint(runway.threshold.x + back.x * 2100, runway.threshold.z + back.z * 2100, 520, 104),
-          routePoint(runway.threshold.x + back.x * 1650, runway.threshold.z + back.z * 1650, 430, 96),
-          routePoint(runway.threshold.x + back.x * 1120, runway.threshold.z + back.z * 1120, 310, 88),
-          routePoint(runway.threshold.x + back.x * 650, runway.threshold.z + back.z * 650, 205, 80),
-          routePoint(runway.threshold.x + back.x * 310, runway.threshold.z + back.z * 310, 110, 74),
-          routePoint(runway.threshold.x + back.x * 120, runway.threshold.z + back.z * 120, 42, 69),
-          routePoint(runway.threshold.x, runway.threshold.z, 0.035, 66),
+        const { along, lat } = typeof projectOnRunway === 'function'
+          ? projectOnRunway(this.pos, runway)
+          : { along: -2100, lat: 0 };
+        const onFinal = Math.abs(lat) < 140 && along < 80 && along > -2200;
+        const remainingFinal = onFinal ? Math.max(650, -along) : 2100;
+        const gates = [
+          [2100, 520, 104],
+          [1650, 430, 96],
+          [1120, 310, 88],
+          [650, 205, 80],
+          [310, 110, 74],
+          [140, 48, 70],
         ];
-        this.setRoute(approach, 104);
+        const approach = gates
+          .filter(([distance]) => distance <= remainingFinal + 80)
+          .map(([distance, altitude, speed]) => routePoint(
+            runway.threshold.x + back.x * distance,
+            runway.threshold.z + back.z * distance,
+            altitude,
+            speed,
+          ));
+        this.setRoute(approach, approach[0]?.speed ?? 90);
         this.patternHold = false;
-        this.requestApproach = true;
+        this.requestApproach = false;
         this.departing = false;
         this.playOneShot('gear-open');
         this.playOneShot('bay-open');
@@ -2853,6 +2865,24 @@
       buildTaxiInRoute(runwayId) {
         reassignGateIfOccupied(this);
         const runway = RUNWAYS[runwayId];
+        const axis = runway.axis;
+        const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
+        const side = runway.pattern || 1;
+        const off = runway.width * 0.5 + 24;
+        const vacate = [
+          routePoint(
+            this.pos.x + axis.x * 28 + lateral.x * side * off,
+            this.pos.z + axis.z * 28 + lateral.z * side * off,
+            0.035,
+            Math.max(WORLD.exitSpeed, 14),
+          ),
+          routePoint(
+            this.pos.x + axis.x * 70 + lateral.x * side * (off + 16),
+            this.pos.z + axis.z * 70 + lateral.z * side * (off + 16),
+            0.035,
+            WORLD.taxiSpeed,
+          ),
+        ];
         const tail = [
           routePoint(128, -206, 0.035, WORLD.taxiSpeed),
           routePoint(236, -194, 0.035, WORLD.taxiSpeed),
@@ -2863,8 +2893,7 @@
         let route;
         if (runwayId === '17L' || runwayId === '35R') {
           route = [
-            routePoint(runway.exit.x, runway.exit.z, 0.035, WORLD.exitSpeed),
-            routePoint(50, -1438, 0.035, WORLD.exitSpeed),
+            ...vacate,
             routePoint(161, -1139, 0.035, WORLD.taxiSpeed),
             routePoint(161, -1090, 0.035, WORLD.taxiSpeed),
             ...tail,
@@ -2872,8 +2901,7 @@
         } else if (runwayId === '17R' || runwayId === '35L') {
           const crossingRunway = activeRunwayCrossingId();
           route = [
-            routePoint(runway.exit.x, runway.exit.z, 0.035, WORLD.exitSpeed),
-            routePoint(-64, -1646, 0.035, WORLD.exitSpeed),
+            ...vacate,
             routePoint(-81, -1098, 0.035, WORLD.taxiSpeed),
             ...(crossingRunway
               ? [
@@ -2892,7 +2920,7 @@
           ];
         } else {
           route = [
-            routePoint(runway.exit.x, runway.exit.z, 0.035, WORLD.exitSpeed),
+            ...vacate,
             routePoint(295, -1172, 0.035, WORLD.taxiSpeed),
             routePoint(156, -1099, 0.035, WORLD.taxiSpeed),
             routePoint(161, -1090, 0.035, WORLD.taxiSpeed),
@@ -2975,7 +3003,7 @@
 
       moveRoute(dt) {
         if (this.route.length === 0) return true;
-        if (this.pos.y < 8) {
+        if (this.pos.y < 8 && this.state !== 'APPROACH') {
           let remaining = dt;
           while (remaining > 1e-6) {
             const slice = Math.min(remaining, 1 / 45);
@@ -3129,7 +3157,8 @@
         if (['TAXI_OUT', 'TAXI_IN', 'HOLD_SHORT', 'LINEUP'].includes(this.state)) {
           const claimed = claimTaxiReservation(this)
             && !shouldHoldForGroundTraffic(this);
-          if (!claimed && this.state !== 'HOLD_SHORT') {
+          const forceVacate = this.state === 'TAXI_IN' && this.stateTime > 5;
+          if (!claimed && this.state !== 'HOLD_SHORT' && !forceVacate) {
             if (!this.taxiBlocked) {
               console.info(`[TAXI] ${this.callsign} holding for traffic`);
             }
@@ -3265,18 +3294,15 @@
 
         const along = (this.pos.x - runway.threshold.x) * axis.x
           + (this.pos.z - runway.threshold.z) * axis.z;
-        const hasRotated = along > runway.length * 0.6;
+        const hasRotated = this.speed >= WORLD.takeoffSpeed * 0.7 && along > 140;
         if (hasRotated) {
-          this.pos.y += 5.2 * dt;
+          this.pos.y += 6.5 * dt;
           this.visualPitch = THREE.MathUtils.damp(this.visualPitch, -0.11, 3, dt);
         } else {
           this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
         }
 
-        const pastEnd = (this.pos.x - runway.departureEnd.x) * axis.x
-          + (this.pos.z - runway.departureEnd.z) * axis.z > 4;
-
-        if (pastEnd && this.pos.y > 3) {
+        if (this.pos.y > 14 && along > 220) {
           this.setState('AIRBORNE');
           this.flightTime = 0;
           this.requestApproach = false;
@@ -3340,19 +3366,41 @@
           this.goAround('runway occupied on short final');
           return;
         }
-        const targetAltitude = this.route[this.routeIndex]?.y ?? 0.035;
+        const { along, lat } = projectOnRunway(this.pos, runway);
+        const linedUp = Math.abs(lat) < runway.width * 0.85 + 12
+          && along > -140
+          && along < 90;
+        if (along > 160 && this.pos.y > 12) {
+          this.goAround('long final, going around');
+          return;
+        }
+        const targetAltitude = linedUp
+          ? 0.035
+          : Math.max(48, this.route[this.routeIndex]?.y ?? 110);
         this.updateAltitude(dt, targetAltitude, {
           maxClimb: 6,
-          maxDescent: 28,
+          maxDescent: linedUp ? 16 : 20,
           acceleration: 7,
         });
-        if (this.moveRoute(dt)) {
+        if (this.routeIndex < this.route.length) {
+          this.moveRoute(dt);
+        } else {
+          this.heading = turnToward(this.heading, runway.heading, 1.4 * dt);
+          this.pos.x += Math.sin(this.heading) * this.speed * dt;
+          this.pos.z += Math.cos(this.heading) * this.speed * dt;
+        }
+        if (linedUp && this.pos.y < 22) {
+          const touchAlong = THREE.MathUtils.clamp(along, 40, 70);
+          this.pos.x = runway.threshold.x + runway.axis.x * touchAlong;
+          this.pos.z = runway.threshold.z + runway.axis.z * touchAlong;
           this.setState('LANDING');
           this.holdsRunway = true;
-          this.speed = Math.max(this.speed, 28);
+          this.heading = runway.heading;
+          this.speed = Math.min(Math.max(this.speed, 22), 38);
           this.pos.y = 0.035;
           this.verticalSpeed = 0;
           this.visualPitch = 0;
+          this.clearRoute();
         }
         this.visualPitch = THREE.MathUtils.damp(this.visualPitch, -0.035, 4, dt);
       }
@@ -3362,8 +3410,8 @@
         this.verticalSpeed = 0;
         const axis = runway.axis;
         const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
-        this.heading = turnToward(this.heading, runway.heading, 1.2 * dt);
-        this.speed = THREE.MathUtils.damp(this.speed, 16, 1.65, dt);
+        this.heading = runway.heading;
+        this.speed = THREE.MathUtils.damp(this.speed, 14, 3.4, dt);
         const lateralOffset = (this.pos.x - runway.threshold.x) * lateral.x
           + (this.pos.z - runway.threshold.z) * lateral.z;
         const correction = lateralOffset * Math.min(1, dt * 5);
@@ -3376,14 +3424,20 @@
 
         let along = (this.pos.x - runway.threshold.x) * axis.x
           + (this.pos.z - runway.threshold.z) * axis.z;
-        if (along < 40) {
-          const pull = 50 - along;
-          this.pos.x += axis.x * pull;
-          this.pos.z += axis.z * pull;
+        if (along < 40 || Math.abs(lateralOffset) > runway.width) {
+          const clamped = Math.max(along, 50);
+          this.pos.x = runway.threshold.x + axis.x * clamped - lateral.x * lateralOffset;
+          this.pos.z = runway.threshold.z + axis.z * clamped - lateral.z * lateralOffset;
           this.heading = runway.heading;
-          along = 50;
+          along = clamped;
         }
-        const turnOff = along > runway.landingExitAlong;
+        const maxRoll = Math.min(280, runway.length * 0.18);
+        if (along > runway.length - 120) {
+          along = runway.length - 140;
+          this.pos.x = runway.threshold.x + axis.x * along;
+          this.pos.z = runway.threshold.z + axis.z * along;
+        }
+        const turnOff = along > maxRoll || this.stateTime > 8;
 
         if (turnOff) {
           this.holdsRunway = false;
@@ -3510,11 +3564,17 @@
     }
 
     function groundYieldsTo(self, other) {
+      // Vacating traffic keeps rolling except for a roll/takeoff on the same pavement.
+      if (self.state === 'TAXI_IN') {
+        return other.state === 'TAKEOFF' || other.state === 'LANDING';
+      }
+      if (other.state === 'TAXI_IN') return true;
       if (other.state === 'TAKEOFF' || other.state === 'LANDING') return true;
       if (self.state === 'TAKEOFF') return false;
-      if (other.state === 'HOLD_SHORT' && self.state !== 'HOLD_SHORT') return true;
+      // Hold-short aircraft are already stopped at the pad; they do not own the taxiway.
+      if (other.state === 'HOLD_SHORT') return false;
+      if (self.state === 'HOLD_SHORT') return true;
       if (self.state === 'TAXI_OUT' && other.state === 'TAXI_IN') return true;
-      if (self.state === 'TAXI_IN' && other.state === 'TAXI_OUT') return false;
       if (self.state === 'LINEUP' && other.state === 'LINEUP') return self.id > other.id;
       return self.id > other.id;
     }
@@ -3768,7 +3828,7 @@
       const runway = RUNWAYS[nearestRunwayId(aircraft.pos)];
       if (!runway) return false;
       const { along, lat } = projectOnRunway(aircraft.pos, runway);
-      const onStrip = Math.abs(lat) < 90 && along > -60 && along < runway.length + 80;
+      const onStrip = Math.abs(lat) < 90 && along > -60 && along < 280;
       if (!onStrip) return false;
       const speed = Number(track?.velocity ?? aircraft.speed);
       const y = aircraft.liveTarget?.y ?? aircraft.pos.y;
@@ -3777,7 +3837,7 @@
 
     function snapOntoRunway(aircraft, runway) {
       const { along, lat } = projectOnRunway(aircraft.pos, runway);
-      const clamped = THREE.MathUtils.clamp(Math.max(along, 55), 55, runway.length * 0.45);
+      const clamped = THREE.MathUtils.clamp(along, 50, 80);
       aircraft.pos.x = runway.threshold.x + runway.axis.x * clamped;
       aircraft.pos.z = runway.threshold.z + runway.axis.z * clamped;
       aircraft.pos.y = 0.035;
@@ -3810,7 +3870,7 @@
       }
       aircraft.gate.set(GATE_SLOTS[slot], 0, WORLD.gateZ);
       aircraft.runwayId = runwayId;
-      if (along >= -30 && Math.abs(lat) < 90) {
+      if (along >= -30 && along < 200 && Math.abs(lat) < 90) {
         snapOntoRunway(aircraft, runway);
         aircraft.holdsRunway = true;
         aircraft.setState('LANDING');
@@ -3882,6 +3942,30 @@
       return aircraft;
     }
 
+    function handoffLiveInbound(aircraft) {
+      aircraft.liveFollow = false;
+      aircraft.liveOrigin = true;
+      aircraft.departing = false;
+      aircraft.liveApproachCleared = false;
+      aircraft.requestApproach = true;
+      aircraft.patternHold = false;
+      aircraft.holdsRunway = false;
+      aircraft.waitTime = Math.max(aircraft.waitTime, 1);
+      aircraft.flightTime = Math.max(aircraft.flightTime, 20);
+      aircraft.setState('AIRBORNE');
+      aircraft.enterOrbitFromCurrentPosition();
+      aircraft.orbitAltitude = THREE.MathUtils.clamp(aircraft.pos.y, 260, 620);
+      if (!aircraft.liveAnnouncedInbound) {
+        aircraft.liveAnnouncedInbound = true;
+        announceInboundAircraft(aircraft);
+      }
+      console.info(
+        `%c[LIVE] %c${aircraft.callsign} inbound, handed to tower`,
+        'color:#67d7ff;font-weight:700',
+        'color:#9eb1c3',
+      );
+    }
+
     function updateLiveInboundIntent(aircraft, track) {
       if (!aircraft.liveFollow) return;
       const range = Math.hypot(aircraft.pos.x, aircraft.pos.z);
@@ -3896,14 +3980,7 @@
       aircraft.departing = false;
       const inbound = agl < 2100 && range < 12500 && verticalRate <= 2.5 && aircraft.speed < 130;
       if (!inbound || aircraft.liveApproachCleared) return;
-      if (!aircraft.requestApproach) {
-        aircraft.requestApproach = true;
-        aircraft.waitTime = Math.max(aircraft.waitTime, 1);
-      }
-      if (!aircraft.liveAnnouncedInbound) {
-        aircraft.liveAnnouncedInbound = true;
-        announceInboundAircraft(aircraft);
-      }
+      handoffLiveInbound(aircraft);
     }
 
     async function pollLiveTraffic() {
@@ -3920,16 +3997,13 @@
           seen.add(track.icao24);
           let aircraft = aircraftList.find((item) => item.liveId === track.icao24);
           if (aircraft && aircraft.liveOrigin && !aircraft.liveFollow) {
-            const onPavement = ['LANDING', 'TAXI_IN', 'TAXI_OUT', 'HOLD_SHORT', 'LINEUP', 'TAKEOFF', 'PARKED']
-              .includes(aircraft.state);
-            if (onPavement) {
-              aircraft.liveUpdatedAt = now;
-              continue;
-            }
+            aircraft.liveUpdatedAt = now;
             if (!track.onGround && aircraft.pos.y < 8 && aircraft.state === 'PARKED') {
               aircraft.retired = true;
               aircraft.root.visible = false;
               aircraft = null;
+            } else {
+              continue;
             }
           }
           if (!aircraft && !track.onGround) {
@@ -4869,22 +4943,50 @@
     WEATHER.activeRunways = activeRunwaysForWind(WEATHER.windDirection);
 
     function reservationForRunway(runwayId) {
-      return aircraftList.find(
-        (aircraft) => aircraft.holdsRunway && aircraft.runwayId === runwayId,
-      ) ?? null;
+      return aircraftList.find((aircraft) => {
+        if (aircraft.crossingActive && aircraft.crossingRunwayId === runwayId) return true;
+        if (aircraft.runwayId !== runwayId) return false;
+        if (aircraft.holdsRunway) return true;
+        return ['LANDING', 'LINEUP', 'TAKEOFF'].includes(aircraft.state);
+      }) ?? null;
     }
 
     function crossingForRunway(runwayId) {
       return aircraftList.find(
-        (aircraft) => (aircraft.crossingActive || aircraft.crossingRequested)
-          && aircraft.crossingRunwayId === runwayId,
+        (aircraft) => aircraft.crossingActive && aircraft.crossingRunwayId === runwayId,
       ) ?? null;
     }
 
+    function approachOnRunway(runwayId) {
+      return aircraftList.find(
+        (aircraft) => aircraft.state === 'APPROACH' && aircraft.runwayId === runwayId,
+      ) ?? null;
+    }
+
+    function shortFinalFor(runwayId) {
+      const runway = RUNWAYS[runwayId];
+      if (!runway) return null;
+      return aircraftList.find((aircraft) => {
+        if (aircraft.state !== 'APPROACH' || aircraft.runwayId !== runwayId) return false;
+        const { along } = projectOnRunway(aircraft.pos, runway);
+        return along > -900 || aircraft.pos.y < 130;
+      }) ?? null;
+    }
+
     function runwayOccupied(runwayId) {
-      return Boolean(
-        reservationForRunway(runwayId) || crossingForRunway(runwayId),
-      );
+      return Boolean(reservationForRunway(runwayId) || crossingForRunway(runwayId));
+    }
+
+    function canClearTakeoff(runwayId) {
+      return !runwayOccupied(runwayId) && !shortFinalFor(runwayId);
+    }
+
+    function canClearApproach(runwayId) {
+      return !runwayOccupied(runwayId) && !approachOnRunway(runwayId);
+    }
+
+    function canClearCross(runwayId) {
+      return !runwayOccupied(runwayId) && !shortFinalFor(runwayId);
     }
 
     function gateSlotFor(aircraft) {
@@ -4963,12 +5065,18 @@
       const runways = WEATHER.activeRunways.map((runwayId) => {
         const reservation = reservationForRunway(runwayId);
         const crossing = crossingForRunway(runwayId);
+        const approach = approachOnRunway(runwayId);
+        const shortFinal = shortFinalFor(runwayId);
         return {
           id: runwayId,
           controller: controllerForRunway(runwayId).id,
           busy: Boolean(reservation || crossing),
+          shortFinal: Boolean(shortFinal),
+          approachBy: approach?.callsign ?? null,
           reservedBy: reservation?.callsign ?? crossing?.callsign ?? null,
           crossingBy: crossing?.callsign ?? null,
+          canTakeoff: canClearTakeoff(runwayId),
+          canApproach: canClearApproach(runwayId),
         };
       });
       return {
@@ -5016,14 +5124,15 @@
       // Arrivals get first refusal of any free active runway.
       for (const arrival of [...needsApproach].sort((a, b) => waitScore(b) - waitScore(a))) {
         const runway = approachRunwayFor(arrival);
-        if (runwayOccupied(runway)) continue;
+        if (!canClearApproach(runway)) continue;
         return {
           action: 'CLEAR_APPROACH',
           aircraftId: arrival.id,
           runway,
           reason:
-            `RWY ${runway} is clear. ${arrival.callsign} is cleared for the approach; ` +
-            `arrival traffic has priority over departures.`,
+            `${arrival.callsign} cleared approach RWY ${runway}, ` +
+            `heading ${String(approachHeadingFor(runway)).padStart(3, '0')}, ` +
+            `wind ${String(WEATHER.windDirection).padStart(3, '0')} at ${WEATHER.windSpeed}.`,
         };
       }
 
@@ -5047,7 +5156,7 @@
       for (const crosser of [...crossings].sort((a, b) => waitScore(b) - waitScore(a))) {
         const runway = crosser.crossingRunwayId;
         if (!runways.includes(runway)) continue;
-        if (runwayOccupied(runway)) continue;
+        if (!canClearCross(runway)) continue;
         return {
           action: 'CLEAR_CROSS',
           aircraftId: crosser.id,
@@ -5062,7 +5171,7 @@
         const runway = runways.includes(departure.runwayId)
           ? departure.runwayId
           : taxiRunwayFor(departure);
-        if (runwayOccupied(runway)) continue;
+        if (!canClearTakeoff(runway)) continue;
         const others = holdShort.filter((a) => a.id !== departure.id);
         const priorityText = ['high', 'normal', 'low'][departure.priority] ?? 'normal';
         return {
@@ -5070,10 +5179,10 @@
           aircraftId: departure.id,
           runway,
           reason:
-            `${departure.callsign} gets the next departure on RWY ${runway} (${priorityText} priority, ` +
-            `${Math.round(departure.waitTime)}s waiting). ` +
+            `${departure.callsign} cleared takeoff RWY ${runway}, ` +
+            `wind ${String(WEATHER.windDirection).padStart(3, '0')} at ${WEATHER.windSpeed}. ` +
             (others.length
-              ? `${others.map((a) => a.callsign).join(', ')} held on the ground.`
+              ? `${others.map((a) => a.callsign).join(', ')} hold short.`
               : 'Runway is clear.'),
         };
       }
@@ -5194,14 +5303,20 @@
         'You are the tower controller at Centennial Airport (KAPA).',
         'Use only runway ids listed in snapshot.activeRunways.',
         'Each runway has its own busy flag in snapshot.runways, so parallel runways may be used independently.',
-        'Exactly one aircraft may use a given runway at a time.',
+        'A runway is hot (busy) only if someone is lining up, taking off, landing, or crossing it.',
+        'An aircraft on APPROACH does not block a departure unless shortFinal is true (inside about 1 km / low).',
+        'You may CLEAR_TAKEOFF when canTakeoff is true. You may CLEAR_APPROACH when canApproach is true (one approach per runway).',
+        'Do not hold a departure just because an arrival is still in the pattern miles out.',
+        'Waiting to cross is not occupying the runway; only an active crossing is.',
         'Prefer inbound traffic, then high-priority aircraft, then longest-waiting departures.',
         'Use the aircraftId value from the snapshot, never the callsign.',
         'Only issue CLEAR_TAXI for an aircraft that is PARKED with requestTaxi true.',
-        'Only issue CLEAR_TAKEOFF for an aircraft in HOLD SHORT when its runway is not busy.',
-        'Only issue CLEAR_APPROACH for an aircraft that is AIRBORNE with requestApproach true when the chosen runway is not busy.',
-        'Only issue CLEAR_CROSS for an aircraft with requestCrossing true and crossingRunway set, when that runway is not busy.',
+        'Only issue CLEAR_TAKEOFF for an aircraft in HOLD SHORT when canTakeoff is true for that runway.',
+        'Only issue CLEAR_APPROACH for an aircraft that is AIRBORNE with requestApproach true when canApproach is true.',
+        'Only issue CLEAR_CROSS for an aircraft with requestCrossing true and crossingRunway set, when canTakeoff-equivalent canCross: runway not hot and no short final.',
         'HOLD may include an aircraftId or omit it.',
+        'An aircraft in APPROACH, LANDING, LINEUP, or TAKEOFF already owns that runway. Do not HOLD that same aircraft; use MONITOR.',
+        'HOLD means hold short on the ground, or extend downwind if still AIRBORNE and not yet cleared.',
         'Use MONITOR when no clearance is appropriate.',
         'Return exactly one JSON object for exactly one decision.',
         'Never return an array, multiple objects, JSON lines, markdown, or any text outside that one object.',
@@ -5315,7 +5430,13 @@
 
     function validateDecision(decision) {
       if (!decision) return false;
-      if (decision.action === 'MONITOR' || decision.action === 'HOLD') return true;
+      if (decision.action === 'MONITOR') return true;
+      if (decision.action === 'HOLD') {
+        if (!decision.aircraftId) return true;
+        const held = aircraftList.find((a) => a.id === decision.aircraftId);
+        if (!held) return true;
+        return !['APPROACH', 'LANDING', 'LINEUP', 'TAKEOFF'].includes(held.state);
+      }
       const aircraft = aircraftList.find((a) => a.id === decision.aircraftId);
       if (!aircraft) return false;
       if (!WEATHER.activeRunways.includes(decision.runway)) return false;
@@ -5324,7 +5445,7 @@
       }
       if (decision.action === 'CLEAR_TAKEOFF') {
         if (aircraft.state !== 'HOLD_SHORT') return false;
-        if (runwayOccupied(decision.runway)) return false;
+        if (!canClearTakeoff(decision.runway)) return false;
         if (aircraft.runwayId && aircraft.runwayId !== decision.runway) return false;
         const hold = RUNWAYS[decision.runway]?.hold;
         if (!hold) return false;
@@ -5333,13 +5454,13 @@
       if (decision.action === 'CLEAR_APPROACH') {
         return aircraft.state === 'AIRBORNE'
           && aircraft.requestApproach
-          && !runwayOccupied(decision.runway);
+          && canClearApproach(decision.runway);
       }
       if (decision.action === 'CLEAR_CROSS') {
         return (aircraft.state === 'TAXI_OUT' || aircraft.state === 'TAXI_IN')
           && aircraft.crossingRequested
           && aircraft.crossingRunwayId === decision.runway
-          && !runwayOccupied(decision.runway);
+          && canClearCross(decision.runway);
       }
       return false;
     }
@@ -5409,11 +5530,11 @@
           aircraft.requestApproach = false;
           aircraft.patternHold = false;
           if (aircraft.liveFollow) {
-            aircraft.liveApproachCleared = true;
-            aircraft.holdsRunway = false;
-            break;
+            aircraft.liveFollow = false;
+            aircraft.liveOrigin = true;
           }
-          aircraft.holdsRunway = true;
+          aircraft.liveApproachCleared = true;
+          aircraft.holdsRunway = false;
           aircraft.buildApproachRoute(decision.runway);
           aircraft.setState('APPROACH');
           break;
@@ -5429,7 +5550,7 @@
         case 'HOLD': {
           if (!aircraft) break;
           aircraft.holdReason = decision.reason;
-          if (aircraft.state === 'AIRBORNE') {
+          if (aircraft.state === 'AIRBORNE' || aircraft.liveFollow) {
             aircraft.patternHold = true;
           }
           break;
@@ -5545,6 +5666,26 @@
       }).join(' ');
     }
 
+    function speakHeading(degrees) {
+      const wrapped = ((Math.round(Number(degrees) || 0) % 360) + 360) % 360;
+      return speakCallsign(String(wrapped).padStart(3, '0'));
+    }
+
+    function approachHeadingFor(runwayId) {
+      const numeric = parseInt(String(runwayId ?? ''), 10);
+      if (Number.isFinite(numeric)) return numeric * 10;
+      const runway = RUNWAYS[runwayId];
+      if (!runway) return 0;
+      return ((THREE.MathUtils.radToDeg(runway.heading) % 360) + 360) % 360;
+    }
+
+    function approachInfoPhrase(runwayId) {
+      const id = runwayId ?? WEATHER.activeRunway;
+      const heading = speakHeading(approachHeadingFor(id));
+      const wind = `wind ${speakHeading(WEATHER.windDirection)} at ${speakCallsign(String(WEATHER.windSpeed))}`;
+      return `runway ${speakRunway(id)}, heading ${heading}, ${wind}`;
+    }
+
     function pilotVoiceFor(aircraft) {
       return aircraft?.pilotVoice
         ?? PILOT_VOICE_BY_AIRCRAFT[aircraft?.id]
@@ -5556,10 +5697,23 @@
       const lead = controller.id === 'north' ? 'Tower North, ' : '';
       const runway = `runway ${speakRunway(decision.runway ?? WEATHER.activeRunway)}`;
       if (decision.action === 'CLEAR_TAXI') return `${who}, ${lead}taxi to ${runway}.`;
-      if (decision.action === 'CLEAR_TAKEOFF') return `${who}, ${lead}cleared for takeoff ${runway}.`;
-      if (decision.action === 'CLEAR_APPROACH') return `${who}, ${lead}cleared for approach ${runway}.`;
+      if (decision.action === 'CLEAR_TAKEOFF') {
+        const wind = `wind ${speakHeading(WEATHER.windDirection)} at ${speakCallsign(String(WEATHER.windSpeed))}`;
+        return `${who}, ${lead}${wind}, cleared for takeoff ${runway}.`;
+      }
+      if (decision.action === 'CLEAR_APPROACH') {
+        return `${who}, ${lead}${approachInfoPhrase(decision.runway)}, cleared for the approach.`;
+      }
       if (decision.action === 'CLEAR_CROSS') return `${who}, ${lead}cleared to cross ${runway}.`;
       if (decision.action === 'HOLD') {
+        const inAir = aircraft && (
+          aircraft.state === 'AIRBORNE'
+          || aircraft.state === 'APPROACH'
+          || aircraft.liveFollow
+        );
+        if (inAir) {
+          return `${who}, ${lead}extend downwind, I'll call your base.`;
+        }
         return aircraft
           ? `${who}, ${lead}hold short of ${runway}.`
           : `${lead || 'Tower, '}hold short of ${runway}.`;
@@ -5574,7 +5728,9 @@
       const runway = `runway ${speakRunway(decision.runway ?? WEATHER.activeRunway)}`;
       if (decision.action === 'CLEAR_TAXI') return `${tower}, ${who}, ready to taxi.`;
       if (decision.action === 'CLEAR_TAKEOFF') return `${tower}, ${who}, ready for departure.`;
-      if (decision.action === 'CLEAR_APPROACH') return `${tower}, ${who}, request approach.`;
+      if (decision.action === 'CLEAR_APPROACH') {
+        return `${tower}, ${who}, inbound, request ${approachInfoPhrase(decision.runway)}.`;
+      }
       if (decision.action === 'CLEAR_CROSS') return `${tower}, ${who}, request crossing ${runway}.`;
       return null;
     }
@@ -5586,12 +5742,15 @@
       const runway = `runway ${speakRunway(decision.runway ?? WEATHER.activeRunway)}`;
       if (decision.action === 'CLEAR_TAXI') return `${tower}, taxi to ${runway}, ${who}.`;
       if (decision.action === 'CLEAR_TAKEOFF') return `${tower}, cleared for takeoff ${runway}, ${who}.`;
-      if (decision.action === 'CLEAR_APPROACH') return `${tower}, cleared for approach ${runway}, ${who}.`;
+      if (decision.action === 'CLEAR_APPROACH') {
+        return `${tower}, cleared approach ${approachInfoPhrase(decision.runway)}, ${who}.`;
+      }
       if (decision.action === 'CLEAR_CROSS') return `${tower}, cleared to cross ${runway}, ${who}.`;
       if (decision.action === 'HOLD') {
-        const holding = aircraft.state === 'AIRBORNE'
-          ? 'holding in the pattern'
-          : `holding short of ${runway}`;
+        const inAir = aircraft.state === 'AIRBORNE'
+          || aircraft.state === 'APPROACH'
+          || aircraft.liveFollow;
+        const holding = inAir ? 'extending downwind' : `holding short of ${runway}`;
         return `${tower}, ${holding}, ${who}.`;
       }
       return null;
@@ -5622,7 +5781,8 @@
       const now = performance.now();
       if (now - (inboundCallAt.get(key) ?? 0) < 120000) return;
       inboundCallAt.set(key, now);
-      const text = `Tower, ${speakCallsign(aircraft.callsign)}, inbound for landing.`;
+      const runwayId = WEATHER.activeRunway;
+      const text = `Tower, ${speakCallsign(aircraft.callsign)}, inbound, request ${approachInfoPhrase(runwayId)}.`;
       renderPilotCall(aircraft, text);
       console.info(`[RADIO] ${aircraft.callsign}: inbound for landing`);
       if (!voiceEnabled) return;
