@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.kokoro-venv/
+
+voices/*.onnx
+voices/*.onnx.json
+voices/kokoro/*.onnx
+voices/kokoro/*.bin
+
+*.wav
+.DS_Store

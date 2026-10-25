@@ -1,0 +1,4842 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Centennial KAPA — Three.js Airfield Simulator</title>
+  <style>
+    :root {
+      --ink: #eef6ff;
+      --muted: #8fa4b8;
+      --panel: rgba(8, 14, 21, 0.78);
+      --panel-line: rgba(154, 192, 226, 0.18);
+      --cyan: #67d7ff;
+      --green: #59e39d;
+      --amber: #ffd166;
+      --orange: #ff8a5b;
+      --red: #ff6b7a;
+      --blue: #82b9ff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #0b1118;
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    #scene {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas { display: block; }
+
+    .vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(2, 7, 12, 0.42) 0%, transparent 22%, transparent 74%, rgba(1, 5, 9, 0.55) 100%),
+        radial-gradient(circle at 50% 45%, transparent 42%, rgba(0, 0, 0, 0.24) 100%);
+      z-index: 2;
+    }
+
+    .hud {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .glass {
+      background: linear-gradient(145deg, rgba(11, 19, 28, 0.88), rgba(6, 12, 18, 0.7));
+      border: 1px solid var(--panel-line);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+
+    .brand {
+      position: absolute;
+      left: 24px;
+      top: 22px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      user-select: none;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      border: 1px solid rgba(103, 215, 255, 0.35);
+      background:
+        radial-gradient(circle at 50% 50%, rgba(103, 215, 255, 0.24), transparent 60%),
+        rgba(8, 18, 28, 0.8);
+      display: grid;
+      place-items: center;
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-weight: 800;
+      font-size: 17px;
+      letter-spacing: -1px;
+      box-shadow: 0 0 32px rgba(103, 215, 255, 0.12);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.05;
+      letter-spacing: 0.065em;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .brand p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .live-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 10px var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .stats {
+      position: absolute;
+      left: 24px;
+      top: 94px;
+      width: 212px;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .stats-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 13px 15px 11px;
+      border-bottom: 1px solid var(--panel-line);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .stats-head strong {
+      color: var(--cyan);
+      font-size: 9px;
+      font-weight: 600;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .stat {
+      padding: 12px 15px 13px;
+      border-bottom: 1px solid rgba(154, 192, 226, 0.08);
+    }
+
+    .stat:nth-child(odd) { border-right: 1px solid rgba(154, 192, 226, 0.08); }
+    .stat:nth-last-child(-n+2) { border-bottom: 0; }
+
+    .stat .k {
+      font-family: var(--mono);
+      font-size: 8px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .stat .v {
+      font-family: var(--mono);
+      font-size: 16px;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+
+    .stat .v small {
+      font-size: 9px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-left: 3px;
+    }
+
+    .runway-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 15px;
+      border-top: 1px solid var(--panel-line);
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .runway-line .state {
+      color: var(--green);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-align: right;
+    }
+
+    .helo-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 15px 10px;
+      border-top: 1px solid rgba(154, 192, 226, 0.08);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .helo-line span:last-child {
+      color: var(--blue);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+
+    .decision-panel {
+      position: absolute;
+      top: 22px;
+      right: 24px;
+      width: min(390px, calc(100vw - 48px));
+      max-height: calc(100vh - 128px);
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .decision-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 17px 13px;
+      border-bottom: 1px solid var(--panel-line);
+    }
+
+    .decision-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brain-icon {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: rgba(103, 215, 255, 0.09);
+      border: 1px solid rgba(103, 215, 255, 0.22);
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .decision-title h2 {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      font-weight: 650;
+    }
+
+    .decision-title p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+    }
+
+    .mode-badge {
+      border-radius: 999px;
+      padding: 5px 8px;
+      border: 1px solid rgba(89, 227, 157, 0.25);
+      background: rgba(89, 227, 157, 0.08);
+      color: var(--green);
+      font-family: var(--mono);
+      font-size: 8px;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .mode-badge.llm {
+      color: var(--blue);
+      border-color: rgba(130, 185, 255, 0.3);
+      background: rgba(130, 185, 255, 0.1);
+    }
+
+    .clearance-bar {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 11px 17px;
+      border-bottom: 1px solid var(--panel-line);
+      background: rgba(103, 215, 255, 0.025);
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .clearance-bar .spark {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 9px var(--green);
+      flex: 0 0 auto;
+    }
+
+    .clearance-bar strong {
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .decision-feed {
+      overflow: auto;
+      padding: 8px 8px 9px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(154, 192, 226, 0.25) transparent;
+      pointer-events: auto;
+    }
+
+    .decision-feed::-webkit-scrollbar { width: 5px; }
+    .decision-feed::-webkit-scrollbar-thumb {
+      background: rgba(154, 192, 226, 0.24);
+      border-radius: 999px;
+    }
+
+    .log-entry {
+      padding: 10px 10px 10px 11px;
+      border-radius: 10px;
+      border-left: 2px solid transparent;
+      animation: logIn 260ms ease-out both;
+    }
+
+    .log-entry + .log-entry { border-top: 1px solid rgba(154, 192, 226, 0.055); }
+
+    @keyframes logIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .log-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 9px;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .log-time { color: #64788b; }
+
+    .log-action {
+      font-weight: 750;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .log-who { color: var(--ink); font-weight: 650; margin-left: auto; }
+    .log-reason {
+      margin: 0;
+      color: #9eb1c3;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .decision-foot {
+      padding: 10px 16px 12px;
+      border-top: 1px solid var(--panel-line);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+    }
+
+    .countdown-track {
+      flex: 1;
+      height: 3px;
+      border-radius: 99px;
+      background: rgba(154, 192, 226, 0.12);
+      overflow: hidden;
+    }
+
+    .countdown-fill {
+      height: 100%;
+      width: 20%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+      transition: width 100ms linear;
+    }
+
+    .controls {
+      position: absolute;
+      left: 24px;
+      bottom: 22px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px;
+      border-radius: 14px;
+      pointer-events: auto;
+    }
+
+    .controls button {
+      appearance: none;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      padding: 8px 10px;
+      border-radius: 9px;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: 150ms ease;
+      white-space: nowrap;
+    }
+
+    .controls button:hover {
+      color: var(--ink);
+      background: rgba(154, 192, 226, 0.08);
+      border-color: rgba(154, 192, 226, 0.13);
+    }
+
+    .controls button.active {
+      color: var(--cyan);
+      background: rgba(103, 215, 255, 0.1);
+      border-color: rgba(103, 215, 255, 0.24);
+    }
+
+    .controls .divider {
+      width: 1px;
+      height: 20px;
+      background: var(--panel-line);
+      margin: 0 1px;
+    }
+
+    .hint {
+      position: absolute;
+      right: 24px;
+      bottom: 24px;
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      color: rgba(143, 164, 184, 0.72);
+      text-align: right;
+      user-select: none;
+    }
+
+    .hint a { color: rgba(103, 215, 255, 0.72); text-decoration: none; }
+    .hint a:hover { color: var(--cyan); }
+
+    .loading {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 58% 38%, rgba(39, 67, 92, 0.35), transparent 40%),
+        linear-gradient(155deg, #0a1119, #070b10 65%);
+      transition: opacity 700ms ease, visibility 700ms ease;
+    }
+
+    .loading.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    .loader-box {
+      width: min(390px, calc(100vw - 40px));
+      text-align: center;
+    }
+
+    .loader-kicker {
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .loader-box h2 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    .loader-box p {
+      margin: 9px 0 22px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .load-track {
+      width: 100%;
+      height: 4px;
+      border-radius: 99px;
+      background: rgba(154, 192, 226, 0.12);
+      overflow: hidden;
+    }
+
+    .load-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #67d7ff, #59e39d);
+      box-shadow: 0 0 18px rgba(103, 215, 255, 0.35);
+      transition: width 180ms ease;
+    }
+
+    .load-meta {
+      display: flex;
+      justify-content: space-between;
+      color: #60778c;
+      font-family: var(--mono);
+      font-size: 9px;
+      margin-top: 10px;
+    }
+
+    .error {
+      display: none;
+      margin-top: 18px;
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 10px;
+      line-height: 1.5;
+      text-align: left;
+      white-space: pre-wrap;
+    }
+
+    @media (max-width: 800px) {
+      .brand { left: 16px; top: 16px; }
+      .brand p { display: none; }
+      .stats { left: 16px; top: 78px; width: 180px; }
+      .decision-panel { right: 16px; top: 16px; width: 300px; max-height: 48vh; }
+      .decision-title p { display: none; }
+      .controls { left: 16px; bottom: 16px; }
+      .hint { display: none; }
+      .stat-grid { grid-template-columns: 1fr; }
+      .stat:nth-child(odd) { border-right: 0; }
+      .stat:nth-last-child(-n+2) { border-bottom: 1px solid rgba(154, 192, 226, 0.08); }
+      .stat:last-child { border-bottom: 0; }
+      .runway-line { display: none; }
+      .helo-line { display: none; }
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+  <div class="vignette"></div>
+
+  <div class="hud">
+    <div class="brand">
+      <div class="brand-mark">APA</div>
+      <div>
+        <h1>Centennial</h1>
+        <p><span class="live-dot"></span>KAPA / Tower simulation</p>
+      </div>
+    </div>
+
+    <section class="stats glass">
+      <div class="stats-head">
+        <span>Live field status</span>
+        <strong>VFR</strong>
+      </div>
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="k">Aircraft</div>
+          <div class="v" id="stat-aircraft">0</div>
+        </div>
+        <div class="stat">
+          <div class="k">Airborne</div>
+          <div class="v" id="stat-air">0</div>
+        </div>
+        <div class="stat">
+          <div class="k">On ground</div>
+          <div class="v" id="stat-ground">0</div>
+        </div>
+        <div class="stat">
+          <div class="k">Wind</div>
+          <div class="v" id="stat-wind">--</div>
+        </div>
+      </div>
+      <div class="runway-line">
+        <span><span id="stat-tower">TOWER SOUTH + NORTH</span> · RWY <span id="stat-rwy">17L/17R</span></span>
+        <span class="state" id="stat-rwy-state">CLEAR</span>
+      </div>
+      <div class="helo-line">
+        <span>HELO OPS · HELIPLEX / PAD 8</span>
+        <span id="stat-helos">0 · 0 AIR</span>
+      </div>
+    </section>
+
+    <section class="decision-panel glass">
+      <div class="decision-head">
+        <div class="decision-title">
+          <div class="brain-icon">AI</div>
+          <div>
+            <h2>Tower decision loop</h2>
+            <p id="decision-subtitle">Rule-based sequencing every 10s</p>
+          </div>
+        </div>
+        <span class="mode-badge" id="mode-badge">Rule engine</span>
+      </div>
+      <div class="clearance-bar">
+        <span class="spark"></span>
+        <span id="clearance-line">Monitoring field</span>
+      </div>
+      <div class="decision-feed" id="decision-feed"></div>
+      <div class="decision-foot">
+        <span id="next-decision">Next decision in 10.0s</span>
+        <div class="countdown-track"><div class="countdown-fill" id="countdown-fill"></div></div>
+        <span id="decision-count">#000</span>
+      </div>
+    </section>
+
+    <div class="controls glass">
+      <button id="btn-pause" type="button">Pause</button>
+      <div class="divider"></div>
+      <button class="speed-btn active" data-speed="1" type="button">1x</button>
+      <button class="speed-btn" data-speed="2" type="button">2x</button>
+      <button class="speed-btn" data-speed="4" type="button">4x</button>
+      <div class="divider"></div>
+      <button id="btn-view" type="button">Reset view</button>
+      <button id="btn-orbit" type="button">Auto-orbit</button>
+      <div class="divider"></div>
+      <button id="btn-voice" type="button" aria-pressed="false" title="ATC audio via Kokoro">ATC voice: tap</button>
+    </div>
+
+    <div class="hint">
+      Drag to orbit · Scroll to zoom · <a href="https://3dassets.dev/packs/aircraft-fleet-and-airfield" target="_blank" rel="noreferrer">Aircraft Fleet &amp; Airfield · CC0</a> · Airfield data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors · ODbL
+    </div>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="loader-box">
+      <div class="loader-kicker">3dassets.dev pack · KAPA OSM layout</div>
+      <h2>Working the dusk shift</h2>
+      <p>Loading the airfield, aircraft, and ground fleet from the CDN.</p>
+      <div class="load-track"><div class="load-fill" id="load-fill"></div></div>
+      <div class="load-meta"><span id="load-label">Connecting…</span><span id="load-pct">0%</span></div>
+      <div class="error" id="load-error"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { Sky } from 'three/addons/objects/Sky.js';
+    import { KAPA_LAYOUT } from './kapa-layout.js';
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 1. CONFIG
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const ASSETS = {
+      airfield: 'https://cdn.3dassets.dev/assets/32844/v1/model.glb',
+      trainer:  'https://cdn.3dassets.dev/assets/32564/v1/model.glb',
+      lowwing:  'https://cdn.3dassets.dev/assets/32568/v1/model.glb',
+      twin:     'https://cdn.3dassets.dev/assets/32569/v1/model.glb',
+      jet:      'https://cdn.3dassets.dev/assets/32589/v1/model.glb',
+      tug:      'https://cdn.3dassets.dev/assets/32834/v1/model.glb',
+      bowser:   'https://cdn.3dassets.dev/assets/32825/v1/model.glb',
+    };
+
+    // ── LOCAL LLM HOOK ─────────────────────────────────────────────────────
+    // The decision loop is deliberately isolated from the aircraft movement.
+    // To swap the built-in rule brain for a local model, change `mode` below
+    // (or open this file with ?ai=ollama or ?ai=openai).
+    //
+    // Ollama:  ollama serve && ollama pull qwen3.5-9b-64k
+    //          serve.py proxies /api/chat so only this machine talks to Ollama.
+    // OpenAI-compatible: point `openai.url` at LM Studio, vLLM, llama.cpp, etc.
+    // The model must reply with the JSON schema described in askDecisionModel().
+    // If the request fails, the simulator automatically falls back to rules.
+    // ───────────────────────────────────────────────────────────────────────
+    const AI_CONFIG = {
+      mode: 'ollama',                      // 'rules' | 'ollama' | 'openai'
+      interval: 10.0,                      // seconds between decisions
+      ollama: {
+        url: '/api/chat',
+        model: 'qwen3.5-9b-64k:latest',
+      },
+      openai: {
+        url: 'http://localhost:1234/v1/chat/completions',
+        model: 'local-model',
+        apiKey: 'not-needed',
+      },
+    };
+
+    const urlParams = new URLSearchParams(location.search);
+    if (urlParams.get('ai')) AI_CONFIG.mode = urlParams.get('ai').toLowerCase();
+    if (urlParams.get('model')) {
+      AI_CONFIG.ollama.model = urlParams.get('model');
+      AI_CONFIG.openai.model = urlParams.get('model');
+    }
+
+    // KAPA-inspired field. The pavement and building footprints come from
+    // OpenStreetMap, projected to local metres so the simulator has no map
+    // dependency at runtime. +X is east, +Z is north, +Y is up.
+    const WORLD = {
+      centerX: 700,
+      centerZ: -1500,
+      gateZ: -245,
+      taxiSpeed: 15.5,
+      takeoffSpeed: 64,
+      takeoffAcceleration: 9.5,
+      approachSpeed: 82,
+      cruiseSpeed: 105,
+      orbitAltitude: 520,
+      orbitRadius: 2600,
+      orbitCenterX: 700,
+      orbitCenterZ: -1500,
+      exitSpeed: 8.5,
+    };
+
+    const KAPA_RUNWAY_DEFS = [
+      {
+        from: [-0.4, 0.3],
+        to: [107.9, -3047.3],
+        width: 30,
+        ends: {
+          '17L': { hold: [35, -6.2], exitAlong: 1448, controller: 'south', pattern: -1 },
+          '35R': { hold: [225, -3028], exitAlong: 1601, controller: 'south', pattern: -1 },
+        },
+      },
+      {
+        from: [-193.6, -572.9],
+        to: [-117.6, -2706.2],
+        width: 23,
+        ends: {
+          '17R': { hold: [-160, -580], exitAlong: 1078, controller: 'north', pattern: 1 },
+          '35L': { hold: [-112, -2685], exitAlong: 1057, controller: 'north', pattern: 1 },
+        },
+      },
+      {
+        from: [278.3, -1249.5],
+        to: [1642.9, -1773.5],
+        width: 23,
+        ends: {
+          '10': { hold: [295, -1265], exitAlong: 695, controller: 'south', pattern: 1 },
+          '28': { hold: [1600, -1690], exitAlong: 495, controller: 'south', pattern: 1 },
+        },
+      },
+    ];
+
+    const RUNWAYS = {};
+
+    function addRunwayEnd(id, opposite, a, b, width, spec) {
+      const axis = b.clone().sub(a).normalize();
+      const length = a.distanceTo(b);
+      RUNWAYS[id] = {
+        id,
+        opposite,
+        width,
+        length,
+        axis,
+        heading: Math.atan2(axis.x, axis.z),
+        threshold: a,
+        departureEnd: b,
+        hold: new THREE.Vector3(spec.hold[0], 0.035, spec.hold[1]),
+        exit: a.clone().addScaledVector(axis, spec.exitAlong),
+        landingExitAlong: spec.exitAlong,
+        controller: spec.controller,
+        pattern: spec.pattern,
+        family: id.slice(0, 2),
+      };
+    }
+
+    for (const def of KAPA_RUNWAY_DEFS) {
+      const a = new THREE.Vector3(def.from[0], 0.035, def.from[1]);
+      const b = new THREE.Vector3(def.to[0], 0.035, def.to[1]);
+      const ids = Object.keys(def.ends);
+      addRunwayEnd(ids[0], ids[1], a, b, def.width, def.ends[ids[0]]);
+      addRunwayEnd(ids[1], ids[0], b, a, def.width, def.ends[ids[1]]);
+    }
+
+    const RUNWAY_WIND_HEADINGS = Object.fromEntries(
+      Object.entries(RUNWAYS).map(([id, runway]) => [
+        id,
+        (THREE.MathUtils.radToDeg(runway.heading) + 360) % 360,
+      ]),
+    );
+
+    // Only the four primary ends participate in wind selection. The shorter
+    // parallel runway joins the active set as a mate.
+    const RUNWAY_CANDIDATES = ['17L', '35R', '10', '28'];
+    const PARALLEL_MATE = { '17L': '17R', '17R': '17L', '35R': '35L', '35L': '35R' };
+
+    const CONTROLLERS = {
+      south: {
+        id: 'south',
+        label: 'Tower South',
+        runways: new Set(['17L', '35R', '10', '28']),
+      },
+      north: {
+        id: 'north',
+        label: 'Tower North',
+        runways: new Set(['17R', '35L']),
+      },
+    };
+
+    function controllerForRunway(runway) {
+      return CONTROLLERS.north.runways.has(String(runway))
+        ? CONTROLLERS.north
+        : CONTROLLERS.south;
+    }
+
+    const WEATHER = {
+      windDirection: 185,                  // degrees FROM the field
+      windSpeed: 8,
+      activeRunway: '17L',
+      activeRunways: ['17L', '17R'],
+    };
+
+    // Five Alpha Ramp stands, clear of the real hangar footprints.
+    const GATE_SLOTS = [255, 295, 335, 375, 415];
+
+    const COLORS = {
+      trainer:  '#5fd4ff',
+      lowwing:  '#ffd166',
+      twin:     '#c893ff',
+      jet:      '#ff8a5b',
+      trainer2: '#59e39d',
+    };
+
+    // Static aircraft that would sit on our taxi lanes or runway are removed.
+    // The rest of the starter scene (tower, hangars, lighting, ground clutter)
+    // stays intact, so we get a detailed airfield without hand-placing 300 meshes.
+    const STATIC_AIRCRAFT_TO_REMOVE = [
+      '086-high-wing-single',
+      '087-two-seat-trainer',
+      '088-low-wing-single',
+      '089-aerobatic-monoplane',
+      '090-light-sport-aircraft',
+      '096-narrowbody-twinjet',
+      '100-high-wing-single',
+      '105-biplane',
+      '106-low-wing-single',
+      '107-aerobatic-monoplane',
+      '108-light-sport-aircraft',
+      '117-ultralight',
+      '118-glider-tug',
+      '119-bush-plane',
+    ];
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 2. DOM + RENDERER + SCENE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const sceneHost = document.getElementById('scene');
+    const loadingEl = document.getElementById('loading');
+    const loadFillEl = document.getElementById('load-fill');
+    const loadPctEl = document.getElementById('load-pct');
+    const loadLabelEl = document.getElementById('load-label');
+    const loadErrorEl = document.getElementById('load-error');
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance',
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.18;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    sceneHost.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x1b2835, 0.00011);
+
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / window.innerHeight,
+      0.2,
+      16000,
+    );
+    const HOME_VIEW = {
+      position: new THREE.Vector3(3150, 2350, 3250),
+      target: new THREE.Vector3(700, 10, -1500),
+    };
+    camera.position.copy(HOME_VIEW.position);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.copy(HOME_VIEW.target);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 25;
+    controls.maxDistance = 9000;
+    controls.maxPolarAngle = Math.PI * 0.495;
+    controls.autoRotateSpeed = 0.22;
+    controls.update();
+
+    // ── Sky, sun, stars ────────────────────────────────────────────────────
+    const sky = new Sky();
+    sky.scale.setScalar(40000);
+    scene.add(sky);
+
+    const skyUniforms = sky.material.uniforms;
+    skyUniforms.turbidity.value = 7.5;
+    skyUniforms.rayleigh.value = 1.35;
+    skyUniforms.mieCoefficient.value = 0.0045;
+    skyUniforms.mieDirectionalG.value = 0.82;
+
+    const sunDirection = new THREE.Vector3(-0.42, 0.16, -0.78).normalize();
+    skyUniforms.sunPosition.value.copy(sunDirection);
+
+    const sunLight = new THREE.DirectionalLight(0xffbd86, 2.2);
+    sunLight.position.copy(sunDirection).multiplyScalar(2200);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(4096, 4096);
+    sunLight.shadow.camera.left = -1500;
+    sunLight.shadow.camera.right = 1500;
+    sunLight.shadow.camera.top = 1500;
+    sunLight.shadow.camera.bottom = -1500;
+    sunLight.shadow.camera.near = 20;
+    sunLight.shadow.camera.far = 6000;
+    sunLight.shadow.bias = -0.00045;
+    scene.add(sunLight);
+
+    const hemiLight = new THREE.HemisphereLight(0x8fb8dc, 0x344528, 3.4);
+    scene.add(hemiLight);
+
+    const fillLight = new THREE.DirectionalLight(0x5c86b8, 0.8);
+    fillLight.position.set(90, 45, 120);
+    scene.add(fillLight);
+
+    createStars();
+
+    function createStars() {
+      const count = 420;
+      const positions = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.random() * Math.PI * 0.48;
+        const radius = 2800 + Math.random() * 2200;
+        positions[i * 3 + 0] = Math.cos(theta) * Math.cos(phi) * radius;
+        positions[i * 3 + 1] = Math.sin(phi) * radius + 30;
+        positions[i * 3 + 2] = Math.sin(theta) * Math.cos(phi) * radius;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.PointsMaterial({
+        color: 0xcfe9ff,
+        size: 1.6,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.52,
+        depthWrite: false,
+      });
+      scene.add(new THREE.Points(geometry, material));
+    }
+
+    // ── KAPA-inspired ground, pavement, buildings, and lighting ────────────
+    function makeGrassTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#33472c';
+      ctx.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 1800; i++) {
+        const g = 24 + Math.random() * 38;
+        ctx.fillStyle = `rgba(${Math.round(g * 0.7)}, ${Math.round(g + 10)}, ${Math.round(g * 0.55)}, ${0.08 + Math.random() * 0.15})`;
+        const x = Math.random() * 256;
+        const y = Math.random() * 256;
+        ctx.fillRect(x, y, 1 + Math.random() * 3, 1 + Math.random() * 2);
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(600, 600);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    function addGround() {
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(12000, 12000),
+        new THREE.MeshStandardMaterial({
+          map: makeGrassTexture(),
+          color: 0xffffff,
+          roughness: 1,
+          metalness: 0,
+          emissive: 0x26331d,
+          emissiveIntensity: 0.9,
+        }),
+      );
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -0.32;
+      ground.receiveShadow = true;
+      scene.add(ground);
+    }
+
+
+
+    function kapaAsphalt(color = 0x30363a) {
+      return new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.94,
+        metalness: 0.02,
+      });
+    }
+
+    function polygonShape(points) {
+      const pts = points.slice();
+      if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) {
+        pts.pop();
+      }
+      if (pts.length < 3) return null;
+      const shape = new THREE.Shape();
+      shape.moveTo(pts[0][0], -pts[0][1]);
+      for (let i = 1; i < pts.length; i += 1) shape.lineTo(pts[i][0], -pts[i][1]);
+      shape.closePath();
+      return shape;
+    }
+
+    function addFlatPolygon(points, material, y) {
+      const shape = polygonShape(points);
+      if (!shape) return null;
+      const geometry = new THREE.ShapeGeometry(shape);
+      geometry.rotateX(-Math.PI / 2);
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.y = y;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      return mesh;
+    }
+
+    function addExtrudedBuilding(points, height, material) {
+      const shape = polygonShape(points);
+      if (!shape) return null;
+      const geometry = new THREE.ExtrudeGeometry(shape, {
+        depth: Math.max(1.5, height),
+        bevelEnabled: false,
+        curveSegments: 1,
+      });
+      geometry.rotateX(-Math.PI / 2);
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      return mesh;
+    }
+
+    function addRibbonSegments(segments, material, y, height, widthOverride = null) {
+      if (segments.length === 0) return null;
+      const geometry = new THREE.BoxGeometry(1, height, 1);
+      const mesh = new THREE.InstancedMesh(geometry, material, segments.length);
+      const dummy = new THREE.Object3D();
+      segments.forEach((segment, index) => {
+        dummy.position.set(segment.x, y - index * 0.000006, segment.z);
+        dummy.rotation.set(0, segment.heading, 0);
+        dummy.scale.set(widthOverride ?? segment.width, 1, segment.length + 0.35);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(index, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.receiveShadow = true;
+      mesh.computeBoundingSphere();
+      scene.add(mesh);
+      return mesh;
+    }
+
+    function pathSegments(points, width) {
+      const out = [];
+      for (let i = 0; i < points.length - 1; i += 1) {
+        const [x1, z1] = points[i];
+        const [x2, z2] = points[i + 1];
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const length = Math.hypot(dx, dz);
+        if (length < 0.1) continue;
+        out.push({
+          x: (x1 + x2) / 2,
+          z: (z1 + z2) / 2,
+          heading: Math.atan2(dx, dz),
+          length,
+          width,
+        });
+      }
+      return out;
+    }
+
+    function samplePolyline(points, spacing) {
+      const out = [];
+      let carry = 0;
+      for (let i = 0; i < points.length - 1; i += 1) {
+        const [x1, z1] = points[i];
+        const [x2, z2] = points[i + 1];
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const length = Math.hypot(dx, dz);
+        if (length < 0.1) continue;
+        const heading = Math.atan2(dx, dz);
+        for (let along = carry; along < length; along += spacing) {
+          out.push({
+            x: x1 + (dx * along) / length,
+            z: z1 + (dz * along) / length,
+            heading,
+          });
+        }
+        carry = (carry - length) % spacing;
+        if (carry < 0) carry += spacing;
+      }
+      return out;
+    }
+
+    function makeTextTexture(text, size = 256, color = '#e8e8e0') {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = color;
+      ctx.font = `bold ${Math.floor(size * 0.58)}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, size / 2, size / 2);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    function makeSignTexture(text, background, foreground) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 192;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = foreground;
+      ctx.lineWidth = 8;
+      ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+      ctx.fillStyle = foreground;
+      ctx.font = 'bold 84px Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 3);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return texture;
+    }
+
+    function addKapaAprons() {
+      const apronMaterial = kapaAsphalt(0x343b3f);
+      apronMaterial.polygonOffset = true;
+      apronMaterial.polygonOffsetFactor = -1;
+      apronMaterial.polygonOffsetUnits = -1;
+      for (const apron of KAPA_LAYOUT.aprons) {
+        addFlatPolygon(apron.pts, apronMaterial, -0.04);
+      }
+
+      const roadMaterial = new THREE.MeshStandardMaterial({
+        color: 0x292e31,
+        roughness: 1,
+      });
+      addFlatPolygon(
+        [[210, -190], [470, -190], [470, -178], [210, -178]],
+        roadMaterial,
+        -0.02,
+      );
+    }
+
+    function addKapaTaxiways() {
+      const surface = kapaAsphalt(0x31383c);
+      const centerline = new THREE.MeshBasicMaterial({
+        color: 0xd9b94a,
+        transparent: true,
+        opacity: 0.82,
+      });
+      const surfaces = [];
+      const lines = [];
+      const seen = new Set();
+      for (const way of KAPA_LAYOUT.taxiways) {
+        const first = way.pts[0];
+        const last = way.pts[way.pts.length - 1];
+        const key = `${way.ref}:${way.pts.length}:${first[0].toFixed(1)},${first[1].toFixed(1)}:${last[0].toFixed(1)},${last[1].toFixed(1)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const width = Math.max(8, Math.min(way.w || 15, 26));
+        const segments = pathSegments(way.pts, width);
+        surfaces.push(...segments);
+        lines.push(...segments);
+      }
+      addRibbonSegments(surfaces, surface, -0.02, 0.08);
+      addRibbonSegments(lines, centerline, 0.062, 0.024, 0.42);
+    }
+
+    function addKapaConnectors() {
+      const surface = kapaAsphalt(0x343b3e);
+      const centerline = new THREE.MeshBasicMaterial({
+        color: 0xd9b94a,
+        transparent: true,
+        opacity: 0.82,
+      });
+      const links = [
+        [[104.6, -3.7], [35, -6.2]],
+        [[227.9, -3006.6], [225.2, -3028.1], [225, -3028]],
+        [[-102, -595], [-160, -580]],
+        [[-27, -2678], [-112, -2685]],
+        [[295, -1172], [295, -1265]],
+        [[1634.6, -1687.5], [1600, -1690]],
+        [[236, -194], [236, -245], [430, -245]],
+      ];
+      const surfaces = [];
+      const lines = [];
+      for (const link of links) {
+        const segments = pathSegments(link, 14);
+        surfaces.push(...segments);
+        lines.push(...segments);
+      }
+      addRibbonSegments(surfaces, surface, -0.005, 0.08);
+      addRibbonSegments(lines, centerline, 0.07, 0.024, 0.42);
+    }
+
+    function addKapaHoldShortMarkings() {
+      const yellow = new THREE.MeshBasicMaterial({
+        color: 0xe3c04e,
+        transparent: true,
+        opacity: 0.92,
+      });
+      const bars = [];
+      for (const runway of Object.values(RUNWAYS)) {
+        const outward = runway.hold.clone().sub(runway.threshold);
+        outward.y = 0;
+        if (outward.lengthSq() < 0.01) continue;
+        outward.normalize();
+        const length = Math.min(38, runway.width + 14);
+        for (const offset of [6.4, 9.2]) {
+          const point = runway.hold.clone().addScaledVector(outward, -offset);
+          bars.push({
+            x: point.x,
+            z: point.z,
+            heading: runway.heading + Math.PI / 2,
+            length,
+            width: 0.38,
+          });
+        }
+      }
+      addRibbonSegments(bars, yellow, 0.087, 0.018);
+    }
+
+    function addKapaApronMarkings() {
+      const yellow = new THREE.MeshBasicMaterial({
+        color: 0xe3c04e,
+        transparent: true,
+        opacity: 0.86,
+      });
+      const white = new THREE.MeshBasicMaterial({ color: 0xd7d9d1 });
+      const bars = [];
+      const stopBars = [];
+      for (const x of GATE_SLOTS) {
+        bars.push(
+          { x: x - 13, z: -260, heading: 0, length: 25, width: 0.26 },
+          { x: x + 13, z: -260, heading: 0, length: 25, width: 0.26 },
+          { x, z: -260, heading: 0, length: 21, width: 0.2 },
+        );
+        stopBars.push(
+          { x, z: -272, heading: Math.PI / 2, length: 26, width: 0.38 },
+          { x, z: -268.5, heading: Math.PI / 2, length: 12, width: 0.34 },
+        );
+      }
+      addRibbonSegments(bars, yellow, 0.083, 0.016);
+      addRibbonSegments(stopBars, white, 0.084, 0.016);
+    }
+
+    function addKapaHoldShortSigns() {
+      const postMaterial = new THREE.MeshStandardMaterial({
+        color: 0x4a5152,
+        roughness: 0.72,
+        metalness: 0.35,
+      });
+      const postGeometry = new THREE.CylinderGeometry(0.09, 0.13, 3.1, 6);
+      const taxiwayLabels = {
+        '17L': 'A',
+        '35R': 'A',
+        '17R': 'B',
+        '35L': 'B',
+        '10': 'D1',
+        '28': 'C',
+      };
+      for (const [runwayId, runway] of Object.entries(RUNWAYS)) {
+        const outward = runway.hold.clone().sub(runway.threshold);
+        outward.y = 0;
+        if (outward.lengthSq() < 0.01) continue;
+        outward.normalize();
+        const right = new THREE.Vector3(runway.axis.z, 0, -runway.axis.x);
+        const side = Math.sign(
+          runway.hold.clone().sub(runway.threshold).dot(right),
+        ) || 1;
+        const position = runway.hold.clone()
+          .addScaledVector(outward, 8.5)
+          .addScaledVector(right, side * 11);
+        const group = new THREE.Group();
+        group.position.set(position.x, 0, position.z);
+        group.rotation.y = Math.atan2(outward.x, outward.z);
+
+        const post = new THREE.Mesh(postGeometry, postMaterial);
+        post.position.y = 1.55;
+        post.castShadow = true;
+        group.add(post);
+
+        const runwayPanel = new THREE.Mesh(
+          new THREE.PlaneGeometry(2.5, 1.55),
+          new THREE.MeshBasicMaterial({
+            map: makeSignTexture(runwayId, '#a52626', '#fff6e7'),
+            toneMapped: false,
+          }),
+        );
+        runwayPanel.position.set(1.55, 1.95, 0.06);
+        group.add(runwayPanel);
+
+        const taxiPanel = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.9, 1.45),
+          new THREE.MeshBasicMaterial({
+            map: makeSignTexture(taxiwayLabels[runwayId] ?? 'A', '#d8b638', '#101315'),
+            toneMapped: false,
+          }),
+        );
+        taxiPanel.position.set(-0.95, 1.9, 0.061);
+        group.add(taxiPanel);
+        scene.add(group);
+      }
+    }
+
+    function addKapaRunways() {
+      const surface = kapaAsphalt(0x2c3236);
+      const shoulder = kapaAsphalt(0x262c2f);
+      const white = new THREE.MeshBasicMaterial({ color: 0xe8e8df });
+      const runwayDashes = [];
+      const thresholdBars = [];
+      const aimingBars = [];
+
+      for (const runway of KAPA_LAYOUT.runways) {
+        const [x1, z1] = runway.pts[0];
+        const [x2, z2] = runway.pts[1];
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const length = Math.hypot(dx, dz);
+        const heading = Math.atan2(dx, dz);
+        const axis = new THREE.Vector3(dx / length, 0, dz / length);
+        const right = new THREE.Vector3(axis.z, 0, -axis.x);
+        const mid = new THREE.Vector3((x1 + x2) / 2, 0, (z1 + z2) / 2);
+        const width = runway.width;
+
+        const shoulderMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(width + 14, 0.08, length + 16),
+          shoulder,
+        );
+        shoulderMesh.position.set(mid.x, -0.06, mid.z);
+        shoulderMesh.rotation.y = heading;
+        shoulderMesh.receiveShadow = true;
+        scene.add(shoulderMesh);
+
+        const runwayMesh = new THREE.Mesh(
+          new THREE.BoxGeometry(width, 0.12, length),
+          surface,
+        );
+        runwayMesh.position.set(mid.x, 0.005, mid.z);
+        runwayMesh.rotation.y = heading;
+        runwayMesh.receiveShadow = true;
+        scene.add(runwayMesh);
+
+        for (const side of [-1, 1]) {
+          const edge = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45, 0.025, length - 12),
+            white,
+          );
+          edge.position.set(
+            mid.x + right.x * side * (width / 2 - 1.2),
+            0.078,
+            mid.z + right.z * side * (width / 2 - 1.2),
+          );
+          edge.rotation.y = heading;
+          scene.add(edge);
+        }
+
+        for (let along = 65; along < length - 65; along += 52) {
+          runwayDashes.push({
+            x: x1 + axis.x * along,
+            z: z1 + axis.z * along,
+            heading,
+            length: 18,
+            width: 0.75,
+          });
+        }
+
+        for (const end of [[x1, z1, 1], [x2, z2, -1]]) {
+          const threshold = new THREE.Vector3(end[0], 0, end[1]);
+          const sign = end[2];
+          const endId = Object.keys(RUNWAYS).find(
+            (id) => RUNWAYS[id].threshold.distanceTo(threshold) < 1,
+          );
+          if (endId) {
+            const number = new THREE.Mesh(
+              new THREE.PlaneGeometry(19, 19),
+              new THREE.MeshBasicMaterial({
+                map: makeTextTexture(endId, 256, '#f0f0e7'),
+                transparent: true,
+                depthWrite: false,
+              }),
+            );
+            number.rotation.x = -Math.PI / 2;
+            const group = new THREE.Group();
+            group.name = `runway-number-${endId}`;
+            group.position.copy(threshold).addScaledVector(axis, sign * 52);
+            group.position.y = 0.092;
+            group.rotation.y = RUNWAYS[endId].heading + Math.PI;
+            group.add(number);
+            scene.add(group);
+          }
+          for (let i = 0; i < Math.floor((width - 6) / 1.9); i += 1) {
+            const offset = (i - (Math.floor((width - 6) / 1.9) - 1) / 2) * 1.9;
+            const p = threshold
+              .clone()
+              .addScaledVector(axis, sign * 24)
+              .addScaledVector(right, offset);
+            thresholdBars.push({
+              x: p.x,
+              z: p.z,
+              heading,
+              length: 20,
+              width: 1.15,
+            });
+          }
+
+          for (const side of [-1, 1]) {
+            const p = threshold
+              .clone()
+              .addScaledVector(axis, sign * 315)
+              .addScaledVector(right, side * 5.4);
+            aimingBars.push({
+              x: p.x,
+              z: p.z,
+              heading,
+              length: 48,
+              width: 3.2,
+            });
+          }
+        }
+      }
+
+      addRibbonSegments(runwayDashes, white, 0.085, 0.02);
+      addRibbonSegments(thresholdBars, white, 0.086, 0.02);
+      addRibbonSegments(aimingBars, white, 0.084, 0.02);
+    }
+
+    function addKapaBuildings() {
+      const hangarMaterial = new THREE.MeshStandardMaterial({
+        color: 0x5b5f59,
+        roughness: 0.82,
+        metalness: 0.18,
+      });
+      const terminalMaterial = new THREE.MeshStandardMaterial({
+        color: 0x777b78,
+        roughness: 0.78,
+        metalness: 0.12,
+      });
+      const metalMaterial = new THREE.MeshStandardMaterial({
+        color: 0x6f746f,
+        roughness: 0.72,
+        metalness: 0.3,
+      });
+      for (const building of KAPA_LAYOUT.buildings) {
+        const pts = building.pts.slice(0, -1);
+        let cx = 0;
+        let cz = 0;
+        for (const [x, z] of pts) {
+          cx += x;
+          cz += z;
+        }
+        cx /= pts.length;
+        cz /= pts.length;
+        // The GLB control tower replaces the OSM tower footprint.
+        if (Math.hypot(cx - 544, cz + 995) < 42) continue;
+        const kind = building.kind || 'building';
+        const material = kind === 'hangar'
+          ? hangarMaterial
+          : kind === 'terminal'
+            ? terminalMaterial
+            : metalMaterial;
+        addExtrudedBuilding(building.pts, Math.min(building.h || 8, 22), material);
+      }
+      addKapaBuildingDetails();
+    }
+
+    function addKapaBuildingDetails() {
+      const doorMaterial = new THREE.MeshStandardMaterial({
+        color: 0x252c2e,
+        roughness: 0.76,
+        metalness: 0.3,
+      });
+      const windowMaterial = new THREE.MeshStandardMaterial({
+        color: 0x8da9b5,
+        roughness: 0.3,
+        metalness: 0.55,
+        emissive: 0x0a161b,
+        emissiveIntensity: 0.7,
+      });
+      const ventMaterial = new THREE.MeshStandardMaterial({
+        color: 0x59605c,
+        roughness: 0.66,
+        metalness: 0.42,
+      });
+      const roofLineMaterial = new THREE.LineBasicMaterial({
+        color: 0x9aa19a,
+        transparent: true,
+        opacity: 0.42,
+      });
+      const doorMatrices = [];
+      const windowMatrices = [];
+      const ventMatrices = [];
+      const roofPositions = [];
+      const dummy = new THREE.Object3D();
+
+      for (const building of KAPA_LAYOUT.buildings) {
+        const pts = building.pts.slice(0, -1);
+        if (pts.length < 3) continue;
+        let cx = 0;
+        let cz = 0;
+        for (const [x, z] of pts) {
+          cx += x;
+          cz += z;
+        }
+        cx /= pts.length;
+        cz /= pts.length;
+        if (Math.hypot(cx - 544, cz + 995) < 42) continue;
+
+        const kind = building.kind || 'building';
+        const height = Math.min(building.h || 8, 22);
+        let longest = null;
+        for (let i = 0; i < pts.length; i += 1) {
+          const [x1, z1] = pts[i];
+          const [x2, z2] = pts[(i + 1) % pts.length];
+          const dx = x2 - x1;
+          const dz = z2 - z1;
+          const length = Math.hypot(dx, dz);
+          if (!longest || length > longest.length) {
+            longest = { x1, z1, x2, z2, dx, dz, length };
+          }
+          roofPositions.push(
+            x1, height + 0.26, z1,
+            x2, height + 0.26, z2,
+          );
+        }
+
+        if (longest && longest.length > 12 && height > 3) {
+          const edgeMidX = (longest.x1 + longest.x2) / 2;
+          const edgeMidZ = (longest.z1 + longest.z2) / 2;
+          let normalX = longest.dz / longest.length;
+          let normalZ = -longest.dx / longest.length;
+          if (normalX * (edgeMidX - cx) + normalZ * (edgeMidZ - cz) < 0) {
+            normalX *= -1;
+            normalZ *= -1;
+          }
+          const rotation = Math.atan2(normalX, normalZ);
+          const placePanel = (target, x, z, y, width, panelHeight) => {
+            dummy.position.set(
+              x + normalX * 0.34,
+              y,
+              z + normalZ * 0.34,
+            );
+            dummy.rotation.set(0, rotation, 0);
+            dummy.scale.set(width, panelHeight, 1);
+            dummy.updateMatrix();
+            target.push(dummy.matrix.clone());
+          };
+
+          if (kind === 'hangar') {
+            const doorHeight = Math.min(11, Math.max(3.8, height * 0.72));
+            const doorWidth = Math.min(36, Math.max(7, longest.length * 0.36));
+            if (longest.length > 62) {
+              const spacing = longest.length * 0.2;
+              const tx = longest.dx / longest.length;
+              const tz = longest.dz / longest.length;
+              placePanel(
+                doorMatrices,
+                edgeMidX + tx * spacing,
+                edgeMidZ + tz * spacing,
+                doorHeight / 2 + 0.03,
+                doorWidth * 0.72,
+                doorHeight,
+              );
+              placePanel(
+                doorMatrices,
+                edgeMidX - tx * spacing,
+                edgeMidZ - tz * spacing,
+                doorHeight / 2 + 0.03,
+                doorWidth * 0.72,
+                doorHeight,
+              );
+            } else {
+              placePanel(
+                doorMatrices,
+                edgeMidX,
+                edgeMidZ,
+                doorHeight / 2 + 0.03,
+                doorWidth,
+                doorHeight,
+              );
+            }
+          } else {
+            placePanel(
+              windowMatrices,
+              edgeMidX,
+              edgeMidZ,
+              Math.max(2.2, height * 0.56),
+              Math.min(42, longest.length * 0.66),
+              Math.min(3.2, Math.max(1.4, height * 0.22)),
+            );
+          }
+        }
+
+        if (height >= 6 && longest && longest.length > 24) {
+          const footprint = Math.abs(
+            (longest.x2 - longest.x1) * (longest.z2 - longest.z1),
+          );
+          if (footprint > 120) {
+            const width = Math.min(7.5, Math.max(2.2, longest.length * 0.12));
+            dummy.position.set(cx, height + 0.7, cz);
+            dummy.rotation.set(0, Math.atan2(longest.dx, longest.dz), 0);
+            dummy.scale.set(width, 1.3, width * 0.62);
+            dummy.updateMatrix();
+            ventMatrices.push(dummy.matrix.clone());
+          }
+        }
+      }
+
+      if (roofPositions.length > 0) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+          'position',
+          new THREE.Float32BufferAttribute(roofPositions, 3),
+        );
+        scene.add(new THREE.LineSegments(geometry, roofLineMaterial));
+      }
+
+      const addInstances = (geometry, material, matrices, castShadow) => {
+        if (matrices.length === 0) return;
+        const mesh = new THREE.InstancedMesh(geometry, material, matrices.length);
+        matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.castShadow = castShadow;
+        mesh.computeBoundingSphere();
+        scene.add(mesh);
+      };
+      addInstances(new THREE.PlaneGeometry(1, 1), doorMaterial, doorMatrices, false);
+      addInstances(new THREE.PlaneGeometry(1, 1), windowMaterial, windowMatrices, false);
+      addInstances(new THREE.BoxGeometry(1, 1, 1), ventMaterial, ventMatrices, true);
+    }
+
+    function addKapaHelipads() {
+      const padMaterial = kapaAsphalt(0x3f4648);
+      const letterTexture = makeTextTexture('H', 160, '#e1c24f');
+      const letterMaterial = new THREE.MeshBasicMaterial({
+        map: letterTexture,
+        transparent: true,
+        depthWrite: false,
+      });
+      for (const pad of KAPA_LAYOUT.helipads) {
+        addFlatPolygon(pad.pts, padMaterial, -0.012);
+        const pts = pad.pts.slice(0, -1);
+        let cx = 0;
+        let cz = 0;
+        for (const [x, z] of pts) {
+          cx += x;
+          cz += z;
+        }
+        cx /= pts.length;
+        cz /= pts.length;
+        const letter = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), letterMaterial);
+        letter.rotation.x = -Math.PI / 2;
+        letter.position.set(cx, 0.04, cz);
+        scene.add(letter);
+      }
+    }
+
+    function addInstancedBulbs(points, color, radius = 0.15) {
+      if (points.length === 0) return null;
+      const geometry = new THREE.SphereGeometry(radius, 6, 4);
+      const material = new THREE.MeshBasicMaterial({
+        color,
+        toneMapped: false,
+      });
+      const mesh = new THREE.InstancedMesh(geometry, material, points.length);
+      const dummy = new THREE.Object3D();
+      points.forEach((point, index) => {
+        dummy.position.set(point[0], point[1], point[2]);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(index, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      scene.add(mesh);
+      return mesh;
+    }
+
+    function addRunwayLighting() {
+      const edge = [];
+      const thresholds = [];
+      const ends = [];
+      const approach = [];
+
+      for (const runway of KAPA_LAYOUT.runways) {
+        const [x1, z1] = runway.pts[0];
+        const [x2, z2] = runway.pts[1];
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const length = Math.hypot(dx, dz);
+        const axisX = dx / length;
+        const axisZ = dz / length;
+        const rightX = axisZ;
+        const rightZ = -axisX;
+        const half = runway.width / 2 + 1.6;
+
+        for (let along = 0; along <= length; along += 28) {
+          const cx = x1 + axisX * along;
+          const cz = z1 + axisZ * along;
+          for (const side of [-1, 1]) {
+            edge.push([cx + rightX * half * side, 0.36, cz + rightZ * half * side]);
+          }
+        }
+
+        for (const end of [[x1, z1, -1], [x2, z2, 1]]) {
+          const tx = end[0];
+          const tz = end[1];
+          const sign = end[2];
+          for (let i = -8; i <= 8; i += 1) {
+            thresholds.push([tx + rightX * i * 1.7, 0.34, tz + rightZ * i * 1.7]);
+            ends.push([tx + rightX * i * 1.7, 0.33, tz + rightZ * i * 1.7]);
+          }
+          for (let i = 1; i <= 12; i += 1) {
+            approach.push([
+              tx + axisX * sign * (38 + i * 30),
+              0.3,
+              tz + axisZ * sign * (38 + i * 30),
+            ]);
+          }
+        }
+      }
+      addInstancedBulbs(edge, 0xffd9a3, 0.22);
+      addInstancedBulbs(approach, 0xfff0d0, 0.26);
+      addInstancedBulbs(thresholds, 0x76ffad, 0.18);
+      addInstancedBulbs(ends, 0xff6b5f, 0.14);
+
+      const mainRoutes = {
+        A: [[104.6, -3.7], [121.5, -19], [227.9, -3006.6], [225.2, -3028.1]],
+        B: [[-121.3, -576.3], [-101.6, -595.2], [-27.3, -2678.1]],
+        C: [[156, -1099.6], [295, -1172], [1634.6, -1687.5]],
+        D: [[262.7, -1311.8], [1144, -1669.6]],
+      };
+      const taxiLights = [];
+      for (const [name, pts] of Object.entries(mainRoutes)) {
+        const width = name === 'A' ? 24 : 18;
+        for (const sample of samplePolyline(pts, 34)) {
+          const rightX = Math.cos(sample.heading);
+          const rightZ = -Math.sin(sample.heading);
+          for (const side of [-1, 1]) {
+            taxiLights.push([
+              sample.x + rightX * (width / 2 + 1.6) * side,
+              0.25,
+              sample.z + rightZ * (width / 2 + 1.6) * side,
+            ]);
+          }
+        }
+      }
+      addInstancedBulbs(taxiLights, 0x72b9ff, 0.15);
+    }
+
+    function addApronLamps() {
+      const poleMaterial = new THREE.MeshStandardMaterial({
+        color: 0x3a4145,
+        roughness: 0.7,
+        metalness: 0.3,
+      });
+      const bulbMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffd6a0,
+        toneMapped: false,
+      });
+      const poleGeometry = new THREE.CylinderGeometry(0.14, 0.24, 11, 6);
+      const headGeometry = new THREE.SphereGeometry(0.42, 7, 5);
+      const lamps = [
+        [235, -320], [470, -350], [250, -70], [470, -70],
+        [620, -610], [760, -1010], [590, -1600],
+      ];
+      for (const [x, z] of lamps) {
+        const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+        pole.position.set(x, 5.5, z);
+        pole.castShadow = true;
+        scene.add(pole);
+
+        const head = new THREE.Mesh(headGeometry, bulbMaterial);
+        head.position.set(x, 11.2, z);
+        scene.add(head);
+
+        const glow = new THREE.PointLight(0xffc786, 95, 130, 2);
+        glow.position.set(x, 10.6, z);
+        scene.add(glow);
+      }
+    }
+
+    function addTreeLine() {
+      const count = 760;
+      const trunkGeometry = new THREE.CylinderGeometry(0.22, 0.48, 1, 5);
+      const crownGeometry = new THREE.ConeGeometry(1, 1, 6);
+      const trunkMaterial = new THREE.MeshStandardMaterial({
+        color: 0x2a2119,
+        roughness: 1,
+      });
+      const crownMaterial = new THREE.MeshStandardMaterial({
+        color: 0x1c2b21,
+        roughness: 1,
+        emissive: 0x030604,
+        emissiveIntensity: 0.5,
+      });
+      const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, count);
+      const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, count);
+      const dummy = new THREE.Object3D();
+      let placed = 0;
+
+      for (let attempt = 0; attempt < 24000 && placed < count; attempt += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 2100 + Math.random() * 4400;
+        const x = WORLD.centerX + Math.cos(angle) * radius;
+        const z = WORLD.centerZ + Math.sin(angle) * radius;
+
+        if (x > -700 && x < 2400 && z > -3900 && z < 950) continue;
+        if (Math.hypot(x - HOME_VIEW.position.x, z - HOME_VIEW.position.z) < 700) continue;
+
+        const height = 12 + Math.random() * 22;
+        const trunkHeight = height * 0.4;
+        const crownHeight = height * 0.78;
+        const width = height * (0.22 + Math.random() * 0.08);
+
+        dummy.position.set(x, trunkHeight * 0.5, z);
+        dummy.scale.set(1, trunkHeight, 1);
+        dummy.rotation.y = Math.random() * Math.PI;
+        dummy.updateMatrix();
+        trunks.setMatrixAt(placed, dummy.matrix);
+
+        dummy.position.set(x, trunkHeight + crownHeight * 0.46, z);
+        dummy.scale.set(width, crownHeight, width);
+        dummy.updateMatrix();
+        crowns.setMatrixAt(placed, dummy.matrix);
+        placed += 1;
+      }
+
+      trunks.count = placed;
+      crowns.count = placed;
+      trunks.instanceMatrix.needsUpdate = true;
+      crowns.instanceMatrix.needsUpdate = true;
+      trunks.computeBoundingSphere();
+      crowns.computeBoundingSphere();
+      scene.add(trunks, crowns);
+    }
+
+    // Build the field after all of its helpers have been declared.
+    addGround();
+    addKapaAprons();
+    addKapaTaxiways();
+    addKapaConnectors();
+    addKapaHoldShortMarkings();
+    addKapaApronMarkings();
+    addKapaHoldShortSigns();
+    addKapaRunways();
+    addKapaBuildings();
+    addKapaHelipads();
+    addRunwayLighting();
+    addApronLamps();
+    addTreeLine();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 3. ASSET LOADING
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const manager = new THREE.LoadingManager();
+    manager.onProgress = (_url, loaded, total) => {
+      const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
+      setLoading(pct, `Loading ${loaded} / ${total} assets`);
+    };
+    manager.onLoad = () => setLoading(100, 'Ready');
+
+    const gltfLoader = new GLTFLoader(manager);
+    let helicopterSources = null;
+
+    function setLoading(pct, label) {
+      loadFillEl.style.width = `${pct}%`;
+      loadPctEl.textContent = `${pct}%`;
+      loadLabelEl.textContent = label;
+    }
+
+    function loadGLTF(url) {
+      return new Promise((resolve, reject) => {
+        gltfLoader.load(url, resolve, undefined, reject);
+      });
+    }
+
+    function prepareExpandedField(field) {
+      const root = field.getObjectByName('working-airfield-at-dusk') ?? field;
+      const propNames = [
+        '047-control-tower',
+        '049-fuel-store',
+        '050-radar-dish',
+        '052-windsock-mast',
+        '053-hold-short-sign',
+        '054-papi-unit',
+        '099-self-service-fuel-pump',
+      ];
+      const props = new Map();
+      for (const name of propNames) {
+        const prop = root.getObjectByName(name);
+        if (prop) props.set(name, prop.clone(true));
+      }
+
+      // The starter pack supplies a tiny 288 m field. The KAPA pavement is
+      // built from OSM geometry instead, so keep only the reusable props.
+      const captureHelicopter = (name) => {
+        const node = root.getObjectByName(name);
+        if (!node) return null;
+        const scene = node.clone(true);
+        scene.position.set(0, 0, 0);
+        scene.rotation.set(0, 0, 0);
+        scene.scale.set(1, 1, 1);
+        return { scene, animations: [] };
+      };
+      helicopterSources = {
+        medium: captureHelicopter('097-medium-twin-helicopter'),
+        light: captureHelicopter('098-light-turbine-helicopter'),
+      };
+
+      for (const child of [...root.children]) root.remove(child);
+
+      const placeProp = (name, x, z, rotation = 0) => {
+        const prop = props.get(name);
+        if (!prop) return null;
+        prop.position.set(x, 0, z);
+        prop.rotation.y = rotation;
+        root.add(prop);
+        return prop;
+      };
+
+      placeProp('047-control-tower', 544, -995, -0.45);
+      placeProp('049-fuel-store', 578, -918, 0.22);
+      placeProp('099-self-service-fuel-pump', 553, -866, 0.22);
+      placeProp('050-radar-dish', 635, -1042, 0);
+      placeProp('052-windsock-mast', 158, -418, 0.4);
+      placeProp('053-hold-short-sign', 28, -7, -0.1);
+      placeProp('054-papi-unit', 42, -306, 3.05);
+    }
+
+    async function boot() {
+      const startupPromise = generateStartupScenario();
+      const [
+        airfield,
+        trainer,
+        lowwing,
+        twin,
+        jet,
+        tug,
+        bowser,
+      ] = await Promise.all([
+        loadGLTF(ASSETS.airfield),
+        loadGLTF(ASSETS.trainer),
+        loadGLTF(ASSETS.lowwing),
+        loadGLTF(ASSETS.twin),
+        loadGLTF(ASSETS.jet),
+        loadGLTF(ASSETS.tug),
+        loadGLTF(ASSETS.bowser),
+      ]);
+
+      loadLabelEl.textContent = 'Assembling field…';
+      setLoading(100, 'Assembling field…');
+
+      const field = airfield.scene;
+      field.name = 'Working Airfield At Dusk';
+      for (const name of STATIC_AIRCRAFT_TO_REMOVE) {
+        const node = field.getObjectByName(name);
+        if (node?.parent) node.parent.remove(node);
+      }
+      prepareExpandedField(field);
+
+      field.traverse((object) => {
+        if (!object.isMesh) return;
+        object.receiveShadow = true;
+        if (/control-tower|hangar|fuel-store|clubhouse|radar-dish/i.test(object.name)) {
+          object.castShadow = true;
+        }
+      });
+      scene.add(field);
+
+      const modelSources = {
+        trainer,
+        lowwing,
+        twin,
+        jet,
+      };
+
+      setLoading(100, 'Tower is arranging the first shift…');
+      const scenario = await startupPromise;
+      startupScenario = scenario;
+      WEATHER.windDirection = scenario.windDirection;
+      WEATHER.windSpeed = scenario.windSpeed;
+      WEATHER.activeRunway = scenario.activeRunway;
+      WEATHER.activeRunways = scenario.activeRunways ?? activeRunwaysForWind(scenario.windDirection);
+
+      const assignments = new Map(
+        scenario.aircraft.map((aircraft) => [aircraft.id, aircraft]),
+      );
+      const initialFor = (assignment) => {
+        if (assignment.state === 'HOLD_SHORT') {
+          return {
+            state: 'HOLD_SHORT',
+            runwayId: scenario.activeRunway,
+            wait: assignment.wait,
+          };
+        }
+        if (assignment.state === 'AIRBORNE') {
+          return {
+            state: 'AIRBORNE',
+            orbitAngle: assignment.orbitAngle,
+            flightTime: assignment.flightTime,
+          };
+        }
+        return { state: 'PARKED', dwell: assignment.dwell };
+      };
+      const gatesFor = (assignment) => new THREE.Vector3(
+        GATE_SLOTS[assignment.parking],
+        0,
+        WORLD.gateZ,
+      );
+
+      // The roster and model types are fixed; Ollama chooses the starting
+      // traffic picture, weather, gate lineup, priorities, and timings.
+      const specs = [
+        {
+          id: 'ac-1',
+          callsign: 'N5520T',
+          type: 'TRAINER',
+          typeClass: 'trainer',
+          priority: assignments.get('ac-1').priority,
+          color: COLORS.trainer,
+          gate: gatesFor(assignments.get('ac-1')),
+          source: modelSources.trainer,
+          initial: initialFor(assignments.get('ac-1')),
+        },
+        {
+          id: 'ac-2',
+          callsign: 'N731TW',
+          type: 'TWIN',
+          typeClass: 'twin',
+          priority: assignments.get('ac-2').priority,
+          color: COLORS.twin,
+          gate: gatesFor(assignments.get('ac-2')),
+          source: modelSources.twin,
+          initial: initialFor(assignments.get('ac-2')),
+        },
+        {
+          id: 'ac-3',
+          callsign: 'N442LB',
+          type: 'LOW WING',
+          typeClass: 'lowwing',
+          priority: assignments.get('ac-3').priority,
+          color: COLORS.lowwing,
+          gate: gatesFor(assignments.get('ac-3')),
+          source: modelSources.lowwing,
+          initial: initialFor(assignments.get('ac-3')),
+        },
+        {
+          id: 'ac-4',
+          callsign: 'N908J',
+          type: 'BIZJET',
+          typeClass: 'jet',
+          priority: assignments.get('ac-4').priority,
+          color: COLORS.jet,
+          gate: gatesFor(assignments.get('ac-4')),
+          source: modelSources.jet,
+          initial: initialFor(assignments.get('ac-4')),
+        },
+        {
+          id: 'ac-5',
+          callsign: 'N117CT',
+          type: 'TRAINER',
+          typeClass: 'trainer2',
+          priority: assignments.get('ac-5').priority,
+          color: COLORS.trainer2,
+          gate: gatesFor(assignments.get('ac-5')),
+          source: modelSources.trainer,
+          initial: initialFor(assignments.get('ac-5')),
+        },
+      ];
+
+      for (const spec of specs) {
+        const aircraft = new Aircraft(spec);
+        aircraft.addToScene(scene);
+        aircraftList.push(aircraft);
+      }
+
+      const helicopterSpecs = [
+        {
+          id: 'hel-1',
+          callsign: 'N911KA',
+          type: 'MEDEVAC',
+          color: '#f2a65a',
+          source: helicopterSources?.medium,
+          pad: HELIPADS[0],
+          dwell: 8,
+          patternDirection: -1,
+          rotorRPMSpeed: 34,
+        },
+        {
+          id: 'hel-2',
+          callsign: 'N450KA',
+          type: 'LIGHT HELO',
+          color: '#7fe0c4',
+          source: helicopterSources?.light,
+          pad: HELIPADS[1],
+          dwell: 23,
+          patternDirection: 1,
+          rotorRPMSpeed: 40,
+        },
+      ];
+      for (const spec of helicopterSpecs) {
+        if (!spec.source) continue;
+        const helicopter = new Helicopter(spec.source, spec);
+        helicopter.addToScene(scene);
+        helicopterList.push(helicopter);
+      }
+
+      // Two optional-but-easy ground vehicles from the same pack.
+      const tugRoute = [
+        new THREE.Vector3(225, 0, -275),
+        new THREE.Vector3(270, 0, -275),
+        new THREE.Vector3(270, 0, -285),
+        new THREE.Vector3(225, 0, -285),
+      ];
+      const bowserRoute = [
+        new THREE.Vector3(225, 0, -300),
+        new THREE.Vector3(270, 0, -300),
+        new THREE.Vector3(270, 0, -290),
+        new THREE.Vector3(225, 0, -290),
+      ];
+      const tugVehicle = new GroundVehicle(tug, tugRoute[0], tugRoute);
+      const bowserVehicle = new GroundVehicle(bowser, bowserRoute[0], bowserRoute);
+      tugVehicle.root.name = 'ground-tug';
+      bowserVehicle.root.name = 'fuel-bowser';
+      scene.add(tugVehicle.root, bowserVehicle.root);
+      groundVehicles.push(tugVehicle, bowserVehicle);
+
+      setupHUD();
+      setLoading(100, 'Ready');
+      loadingEl.classList.add('hidden');
+
+      console.info(
+        `%c[TOWER] %cSimulation online — ${aircraftList.length} aircraft, ` +
+          `${helicopterList.length} helicopters, 2 ground vehicles, mode: ${AI_CONFIG.mode}`,
+        'color:#67d7ff;font-weight:700',
+        'color:#9eb1c3',
+      );
+      console.info('[TOWER] Local-model hook: edit AI_CONFIG.mode or append ?ai=rules to the URL.');
+      console.info('[TOWER] ATC voice: tap anywhere to unlock Kokoro audio.');
+
+      clock.start();
+      animate();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 4. AIRCRAFT
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const aircraftList = [];
+    const groundVehicles = [];
+    const routePoint = (x, z, y = 0.035, speed = null, meta = null) => ({
+      x,
+      y,
+      z,
+      speed,
+      ...(meta ?? {}),
+    });
+
+    function activeRunwayCrossingId() {
+      if (WEATHER.activeRunways.includes('17L')) return '17L';
+      if (WEATHER.activeRunways.includes('35R')) return '35R';
+      return null;
+    }
+
+    function shortestAngle(from, to) {
+      let delta = (to - from + Math.PI) % (Math.PI * 2);
+      if (delta < 0) delta += Math.PI * 2;
+      return delta - Math.PI;
+    }
+
+    function turnToward(current, target, maxDelta) {
+      return current + THREE.MathUtils.clamp(shortestAngle(current, target), -maxDelta, maxDelta);
+    }
+
+    class Aircraft {
+      constructor(spec) {
+        this.id = spec.id;
+        this.callsign = spec.callsign;
+        this.type = spec.type;
+        this.typeClass = spec.typeClass;
+        this.priority = spec.priority;
+        this.color = spec.color;
+        this.gate = spec.gate.clone();
+        this.source = spec.source;
+        this.initial = spec.initial;
+
+        this.state = 'PARKED';
+        this.stateTime = 0;
+        this.flightTime = 0;
+        this.waitTime = spec.initial.wait ?? 0;
+        this.requestTaxi = false;
+        this.requestTakeoff = false;
+        this.requestApproach = false;
+        this.patternHold = false;
+        this.holdReason = '';
+        this.runwayId = spec.initial.runwayId ?? null;
+        this.holdsRunway = false;
+        this.parkedDwell = spec.initial.dwell ?? 12;
+        this.crossingRunwayId = null;
+        this.crossingCleared = null;
+        this.crossingRequested = false;
+        this.crossingActive = false;
+
+        this.pos = new THREE.Vector3();
+        this.heading = Math.PI;
+        this.speed = 0;
+        this.targetSpeed = 0;
+        this.route = [];
+        this.routeIndex = 0;
+        this.routeSpeed = WORLD.taxiSpeed;
+        this.orbitAngle = 0;
+        this.orbitDirection = 1;
+        this.orbitAltitude = WORLD.orbitAltitude;
+        this.orbitCenter = new THREE.Vector3(WORLD.orbitCenterX, 0, WORLD.orbitCenterZ);
+        this.orbitRadius = WORLD.orbitRadius;
+        this.visualPitch = 0;
+        this.labelTimer = 0;
+        this.lastLabelText = '';
+
+        this.root = new THREE.Group();
+        this.root.name = spec.callsign;
+        this.root.position.y = 0.035;
+
+        this.model = this.source.scene.clone(true);
+        this.model.traverse((object) => {
+          if (!object.isMesh) return;
+          object.castShadow = true;
+          object.receiveShadow = true;
+        });
+        this.root.add(this.model);
+
+        this.ring = new THREE.Mesh(
+          new THREE.RingGeometry(5.4, 5.9, 40),
+          new THREE.MeshBasicMaterial({
+            color: spec.color,
+            transparent: true,
+            opacity: 0.62,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        );
+        this.ring.rotation.x = -Math.PI / 2;
+        this.ring.position.y = 0.05;
+        this.ring.renderOrder = 3;
+        this.root.add(this.ring);
+
+        this.mixer = new THREE.AnimationMixer(this.model);
+        this.actions = {};
+        for (const clip of this.source.animations) {
+          if (!['prop-spin', 'wheel-roll', 'gear-open', 'gear-close', 'bay-open', 'bay-close'].includes(clip.name)) {
+            continue;
+          }
+          const action = this.mixer.clipAction(clip);
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          this.actions[clip.name] = action;
+        }
+        if (this.actions['prop-spin']) {
+          this.actions['prop-spin'].play();
+          this.actions['prop-spin'].time = Math.random() * 0.6;
+        }
+        if (this.actions['wheel-roll']) {
+          this.actions['wheel-roll'].play();
+          this.actions['wheel-roll'].timeScale = 0;
+        }
+
+        this.label = makeAircraftLabel(this);
+        this.root.add(this.label.sprite);
+
+        this.applyInitialState();
+        this.syncTransform();
+        this.refreshLabel(true);
+      }
+
+      addToScene(sceneRef) {
+        sceneRef.add(this.root);
+      }
+
+      applyInitialState() {
+        const initial = this.initial;
+        if (initial.state === 'HOLD_SHORT') {
+          const runway = RUNWAYS[initial.runwayId ?? WEATHER.activeRunway];
+          this.runwayId = runway.id;
+          this.pos.copy(runway.hold);
+          this.pos.y = 0.035;
+          this.heading = runway.heading;
+          this.state = 'HOLD_SHORT';
+          this.requestTakeoff = true;
+          this.waitTime = initial.wait ?? 0;
+        } else if (initial.state === 'AIRBORNE') {
+          this.state = 'AIRBORNE';
+          this.orbitAngle = initial.orbitAngle ?? 0;
+          this.flightTime = initial.flightTime ?? 0;
+          this.orbitAltitude = WORLD.orbitAltitude;
+          this.updateOrbitPosition(0);
+          this.pos.y = this.orbitAltitude;
+          this.heading = this.orbitHeadingAt(this.orbitAngle);
+        } else {
+          this.pos.copy(this.gate);
+          this.pos.y = 0.035;
+          this.heading = Math.PI;
+          this.state = 'PARKED';
+        }
+      }
+
+      setState(state) {
+        if (this.state === state) return;
+        this.state = state;
+        this.stateTime = 0;
+        this.refreshLabel(true);
+      }
+
+      setRoute(points, speed = WORLD.taxiSpeed) {
+        this.route = points;
+        this.routeIndex = 0;
+        this.routeSpeed = speed;
+        this.speed = Math.max(this.speed, 0);
+      }
+
+      clearRoute() {
+        this.route = [];
+        this.routeIndex = 0;
+      }
+
+      holdShortPoint(runway) {
+        return routePoint(runway.hold.x, runway.hold.z, 0.035, WORLD.taxiSpeed);
+      }
+
+      buildTaxiOutRoute(runwayId) {
+        const runway = RUNWAYS[runwayId];
+        const lead = [
+          routePoint(this.gate.x, this.gate.z, 0.035, 4.5),
+          routePoint(this.gate.x, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
+          routePoint(236, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
+          routePoint(236, -194, 0.035, WORLD.taxiSpeed),
+          routePoint(128, -206, 0.035, WORLD.taxiSpeed),
+        ];
+        let route;
+        if (runwayId === '17L') {
+          route = [
+            ...lead,
+            routePoint(121.5, -19, 0.035, WORLD.taxiSpeed),
+            routePoint(104.6, -3.7, 0.035, WORLD.taxiSpeed),
+            this.holdShortPoint(runway),
+          ];
+        } else if (runwayId === '35R') {
+          route = [
+            ...lead,
+            routePoint(161, -1090, 0.035, WORLD.taxiSpeed),
+            routePoint(227.9, -3006.6, 0.035, WORLD.taxiSpeed),
+            routePoint(225.2, -3028.1, 0.035, WORLD.taxiSpeed),
+            this.holdShortPoint(runway),
+          ];
+        } else if (runwayId === '17R' || runwayId === '35L') {
+          const crossingRunway = activeRunwayCrossingId();
+          route = [
+            ...lead,
+            routePoint(222, -1062, 0.035, WORLD.taxiSpeed),
+            ...(crossingRunway
+              ? [
+                  routePoint(65, -1098, 0.035, WORLD.taxiSpeed, {
+                    crossingRunway,
+                    crossingPhase: 'hold',
+                  }),
+                  routePoint(12, -1098, 0.035, WORLD.taxiSpeed, {
+                    crossingRunway,
+                    crossingPhase: 'clear',
+                  }),
+                ]
+              : [routePoint(38, -1097, 0.035, WORLD.taxiSpeed)]),
+            routePoint(-81, -1098, 0.035, WORLD.taxiSpeed),
+            runwayId === '17R'
+              ? routePoint(-102, -595, 0.035, WORLD.taxiSpeed)
+              : routePoint(-27, -2678, 0.035, WORLD.taxiSpeed),
+            this.holdShortPoint(runway),
+          ];
+        } else {
+          route = [
+            ...lead,
+            routePoint(161, -1090, 0.035, WORLD.taxiSpeed),
+            routePoint(156, -1099, 0.035, WORLD.taxiSpeed),
+            routePoint(295, -1172, 0.035, WORLD.taxiSpeed),
+            runwayId === '10'
+              ? routePoint(295, -1265, 0.035, WORLD.taxiSpeed)
+              : routePoint(1634.6, -1687.5, 0.035, WORLD.taxiSpeed),
+            this.holdShortPoint(runway),
+          ];
+        }
+        const deduped = route.filter((point, index) => {
+          if (index === 0) return true;
+          const previous = route[index - 1];
+          return Math.hypot(point.x - previous.x, point.z - previous.z) > 0.01;
+        });
+        this.crossingRunwayId = null;
+        this.crossingCleared = null;
+        this.crossingRequested = false;
+        this.crossingActive = false;
+        this.setRoute(deduped, WORLD.taxiSpeed);
+      }
+
+      buildLineupRoute(runwayId) {
+        const runway = RUNWAYS[runwayId];
+        const dx = runway.threshold.x - runway.hold.x;
+        const dz = runway.threshold.z - runway.hold.z;
+        const length = Math.max(0.001, Math.hypot(dx, dz));
+        this.setRoute([
+          routePoint(
+            runway.hold.x + (dx / length) * 8,
+            runway.hold.z + (dz / length) * 8,
+            0.035,
+            4.2,
+          ),
+          routePoint(runway.threshold.x, runway.threshold.z, 0.035, 2.5),
+        ], 4.2);
+      }
+
+      buildClimbRoute(runwayId) {
+        const runway = RUNWAYS[runwayId];
+        const axis = runway.axis;
+        const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
+        this.setRoute([
+          routePoint(
+            runway.departureEnd.x + axis.x * 850,
+            runway.departureEnd.z + axis.z * 850,
+            160,
+            78,
+          ),
+          routePoint(
+            runway.departureEnd.x + axis.x * 1750 + lateral.x * 130,
+            runway.departureEnd.z + axis.z * 1750 + lateral.z * 130,
+            390,
+            96,
+          ),
+        ], 78);
+        this.flightTime = 0;
+        this.requestApproach = false;
+        this.patternHold = false;
+      }
+
+      buildApproachRoute(runwayId) {
+        const runway = RUNWAYS[runwayId];
+        const back = runway.axis.clone().negate();
+        const approach = [
+          routePoint(runway.threshold.x + back.x * 2100, runway.threshold.z + back.z * 2100, 520, 104),
+          routePoint(runway.threshold.x + back.x * 1650, runway.threshold.z + back.z * 1650, 430, 96),
+          routePoint(runway.threshold.x + back.x * 1120, runway.threshold.z + back.z * 1120, 310, 88),
+          routePoint(runway.threshold.x + back.x * 650, runway.threshold.z + back.z * 650, 205, 80),
+          routePoint(runway.threshold.x + back.x * 310, runway.threshold.z + back.z * 310, 110, 74),
+          routePoint(runway.threshold.x + back.x * 120, runway.threshold.z + back.z * 120, 42, 69),
+          routePoint(runway.threshold.x, runway.threshold.z, 0.035, 66),
+        ];
+        this.setRoute(approach, 104);
+        this.patternHold = false;
+        this.requestApproach = true;
+        this.playOneShot('gear-open');
+        this.playOneShot('bay-open');
+      }
+
+      buildGoAroundRoute(runwayId) {
+        const runway = RUNWAYS[runwayId];
+        const axis = runway.axis;
+        const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
+        const startX = this.pos.x;
+        const startZ = this.pos.z;
+        this.setRoute([
+          routePoint(
+            startX + axis.x * 320 + lateral.x * 60,
+            startZ + axis.z * 320 + lateral.z * 60,
+            Math.max(90, this.pos.y + 55),
+            78,
+          ),
+          routePoint(
+            startX + axis.x * 900 + lateral.x * 340,
+            startZ + axis.z * 900 + lateral.z * 340,
+            330,
+            92,
+          ),
+          routePoint(
+            startX + axis.x * 650 + lateral.x * 950,
+            startZ + axis.z * 650 + lateral.z * 950,
+            470,
+            92,
+          ),
+        ], 78);
+        this.patternHold = false;
+        this.requestApproach = false;
+      }
+
+      goAround(reason) {
+        if (this.state !== 'APPROACH' && this.state !== 'LANDING') return;
+        const runwayId = this.runwayId ?? WEATHER.activeRunways[0];
+        console.warn(`[GO AROUND] ${this.callsign} on RWY ${runwayId}: ${reason}`);
+        this.holdsRunway = false;
+        this.onRunway = false;
+        this.finishCrossing();
+        this.state = 'AIRBORNE';
+        this.stateTime = 0;
+        this.flightTime = 0;
+        this.goAroundTimer = 10;
+        this.speed = Math.max(this.speed, 72);
+        this.pos.y = Math.max(this.pos.y, 55);
+        this.visualPitch = -0.08;
+        this.buildGoAroundRoute(runwayId);
+      }
+
+      buildTaxiInRoute(runwayId) {
+        reassignGateIfOccupied(this);
+        const runway = RUNWAYS[runwayId];
+        const tail = [
+          routePoint(128, -206, 0.035, WORLD.taxiSpeed),
+          routePoint(236, -194, 0.035, WORLD.taxiSpeed),
+          routePoint(236, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
+          routePoint(this.gate.x, WORLD.gateZ, 0.035, WORLD.taxiSpeed),
+          routePoint(this.gate.x, this.gate.z, 0.035, 4.5),
+        ];
+        let route;
+        if (runwayId === '17L' || runwayId === '35R') {
+          route = [
+            routePoint(runway.exit.x, runway.exit.z, 0.035, WORLD.exitSpeed),
+            routePoint(50, -1438, 0.035, WORLD.exitSpeed),
+            routePoint(161, -1139, 0.035, WORLD.taxiSpeed),
+            routePoint(161, -1090, 0.035, WORLD.taxiSpeed),
+            ...tail,
+          ];
+        } else if (runwayId === '17R' || runwayId === '35L') {
+          const crossingRunway = activeRunwayCrossingId();
+          route = [
+            routePoint(runway.exit.x, runway.exit.z, 0.035, WORLD.exitSpeed),
+            routePoint(-64, -1646, 0.035, WORLD.exitSpeed),
+            routePoint(-81, -1098, 0.035, WORLD.taxiSpeed),
+            ...(crossingRunway
+              ? [
+                  routePoint(-12, -1098, 0.035, WORLD.taxiSpeed, {
+                    crossingRunway,
+                    crossingPhase: 'hold',
+                  }),
+                  routePoint(65, -1098, 0.035, WORLD.taxiSpeed, {
+                    crossingRunway,
+                    crossingPhase: 'clear',
+                  }),
+                ]
+              : [routePoint(38, -1097, 0.035, WORLD.taxiSpeed)]),
+            routePoint(222, -1062, 0.035, WORLD.taxiSpeed),
+            ...tail,
+          ];
+        } else {
+          route = [
+            routePoint(runway.exit.x, runway.exit.z, 0.035, WORLD.exitSpeed),
+            routePoint(295, -1172, 0.035, WORLD.taxiSpeed),
+            routePoint(156, -1099, 0.035, WORLD.taxiSpeed),
+            routePoint(161, -1090, 0.035, WORLD.taxiSpeed),
+            routePoint(222, -1062, 0.035, WORLD.taxiSpeed),
+            ...tail,
+          ];
+        }
+        this.crossingRunwayId = null;
+        this.crossingCleared = null;
+        this.crossingRequested = false;
+        this.crossingActive = false;
+        this.setRoute(route, WORLD.taxiSpeed);
+      }
+
+      playOneShot(name) {
+        const action = this.actions[name];
+        if (!action) return;
+        action.reset();
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        action.play();
+      }
+
+      playOneShotReverse(name) {
+        const action = this.actions[name];
+        if (!action) return;
+        action.reset();
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+        action.play();
+      }
+
+      orbitHeadingAt(angle) {
+        const tangentX = -Math.sin(angle) * this.orbitDirection;
+        const tangentZ = Math.cos(angle) * this.orbitDirection;
+        return Math.atan2(tangentX, tangentZ);
+      }
+
+      updateOrbitPosition(dt) {
+        this.orbitAngle += this.orbitDirection * (this.speed / Math.max(this.orbitRadius, 1)) * dt;
+        const x = this.orbitCenter.x + Math.cos(this.orbitAngle) * this.orbitRadius;
+        const z = this.orbitCenter.z + Math.sin(this.orbitAngle) * this.orbitRadius;
+        this.pos.x = x;
+        this.pos.z = z;
+        this.pos.y += (this.orbitAltitude - this.pos.y) * Math.min(1, dt * 0.8);
+        this.heading = this.orbitHeadingAt(this.orbitAngle);
+      }
+
+      enterOrbitFromCurrentPosition() {
+        this.orbitCenter.set(WORLD.orbitCenterX, 0, WORLD.orbitCenterZ);
+        this.orbitRadius = WORLD.orbitRadius;
+        this.orbitAngle = Math.atan2(this.pos.z - this.orbitCenter.z, this.pos.x - this.orbitCenter.x);
+        this.orbitDirection = this.orbitDirection || 1;
+        this.orbitAltitude = Math.max(this.pos.y, WORLD.orbitAltitude);
+        this.clearRoute();
+      }
+
+      moveRoute(dt) {
+        if (this.route.length === 0) return true;
+
+        while (this.routeIndex < this.route.length) {
+          const target = this.route[this.routeIndex];
+          const dx = target.x - this.pos.x;
+          const dz = target.z - this.pos.z;
+          const distance = Math.hypot(dx, dz);
+          const ground = this.pos.y < 8;
+          const turnRate = ground ? 2.2 : 1.1;
+          const captureRadius = ground ? 1.0 : Math.max(16, (this.speed / turnRate) * 1.05);
+          const crossingHold = target.crossingPhase === 'hold'
+            && target.crossingRunway
+            && this.crossingCleared !== target.crossingRunway;
+
+          const crossingStopRadius = Math.max(2.4, this.speed * dt * 1.6 + 2);
+          if (crossingHold && distance < crossingStopRadius) {
+            this.pos.x = target.x;
+            this.pos.z = target.z;
+            this.speed = 0;
+            this.crossingRunwayId = target.crossingRunway;
+            this.crossingRequested = true;
+            this.crossingActive = false;
+            return false;
+          }
+
+          if (distance < captureRadius) {
+            if (ground) {
+              this.pos.x = target.x;
+              this.pos.z = target.z;
+            }
+            if (target.crossingPhase === 'clear') this.finishCrossing();
+            this.routeIndex += 1;
+            continue;
+          }
+
+          const desiredHeading = Math.atan2(dx, dz);
+          const turnNeeded = Math.abs(shortestAngle(this.heading, desiredHeading));
+          this.heading = turnToward(this.heading, desiredHeading, turnRate * dt);
+
+          let requestedSpeed = target.speed ?? this.routeSpeed;
+          if (ground && turnNeeded > 0.35 && distance < 20) {
+            requestedSpeed = Math.min(
+              requestedSpeed,
+              Math.max(2.4, distance * turnRate * 0.5),
+            );
+          }
+          const acceleration = ground ? 5.5 : 8;
+          const speedDelta = requestedSpeed - this.speed;
+          this.speed += THREE.MathUtils.clamp(speedDelta, -acceleration * dt, acceleration * dt);
+
+          const step = Math.max(0, this.speed * dt);
+          if (step >= distance) {
+            this.pos.x = target.x;
+            this.pos.z = target.z;
+            if (target.crossingPhase === 'clear') this.finishCrossing();
+            this.routeIndex += 1;
+            if (this.routeIndex >= this.route.length) {
+              this.pos.y += (target.y - this.pos.y) * Math.min(1, dt * 2.8);
+              return true;
+            }
+          } else {
+            this.pos.x += Math.sin(this.heading) * step;
+            this.pos.z += Math.cos(this.heading) * step;
+            this.pos.y += (target.y - this.pos.y) * Math.min(1, dt * 1.9);
+            return false;
+          }
+        }
+        return true;
+      }
+
+      finishCrossing() {
+        this.crossingRunwayId = null;
+        this.crossingCleared = null;
+        this.crossingRequested = false;
+        this.crossingActive = false;
+      }
+
+      update(dt) {
+        this.stateTime += dt;
+        this.waitTime += dt;
+
+        if (this.mixer) this.mixer.update(dt);
+
+        switch (this.state) {
+          case 'PARKED':
+            this.speed = THREE.MathUtils.damp(this.speed, 0, 4, dt);
+            this.pos.y = 0.035;
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
+            if (this.stateTime > this.parkedDwell) {
+              this.requestTaxi = true;
+            }
+            break;
+
+          case 'TAXI_OUT':
+            this.pos.y = 0.035;
+            if (this.moveRoute(dt)) {
+              this.setState('HOLD_SHORT');
+              this.requestTakeoff = true;
+              this.speed = 0;
+            }
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
+            break;
+
+          case 'HOLD_SHORT':
+            this.speed = THREE.MathUtils.damp(this.speed, 0, 5, dt);
+            this.pos.y = 0.035;
+            this.requestTakeoff = true;
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
+            break;
+
+          case 'LINEUP':
+            this.pos.y = 0.035;
+            if (this.moveRoute(dt)) {
+              const runway = RUNWAYS[this.runwayId] ?? RUNWAYS['17L'];
+              this.clearRoute();
+              this.state = 'TAKEOFF';
+              this.stateTime = 0;
+              this.speed = 0;
+              this.heading = runway.heading;
+              this.holdsRunway = true;
+              this.refreshLabel(true);
+            }
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
+            break;
+
+          case 'TAKEOFF':
+            this.updateTakeoff(dt);
+            break;
+
+          case 'AIRBORNE':
+            this.updateAirborne(dt);
+            break;
+
+          case 'APPROACH':
+            this.updateApproach(dt);
+            break;
+
+          case 'LANDING':
+            this.updateLanding(dt);
+            break;
+
+          case 'TAXI_IN':
+            this.pos.y = 0.035;
+            if (this.moveRoute(dt)) {
+              this.setState('PARKED');
+              this.speed = 0;
+              this.requestTaxi = false;
+              this.requestTakeoff = false;
+              this.requestApproach = false;
+              this.patternHold = false;
+              this.holdsRunway = false;
+              this.runwayId = null;
+              this.flightTime = 0;
+              this.finishCrossing();
+              this.parkedDwell = 12 + Math.random() * 16;
+            }
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
+            break;
+        }
+
+        if (this.actions['wheel-roll']) {
+          const wheelSpeed = this.pos.y < 0.8 ? THREE.MathUtils.clamp(this.speed / 12, 0, 3.5) : 0;
+          this.actions['wheel-roll'].timeScale = wheelSpeed;
+        }
+
+        this.syncTransform();
+        this.refreshLabel(false, dt);
+      }
+
+      updateTakeoff(dt) {
+        const runway = RUNWAYS[this.runwayId] ?? RUNWAYS['17L'];
+        const axis = runway.axis;
+        const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
+        this.pos.y = Math.max(0.035, this.pos.y);
+        this.heading = turnToward(this.heading, runway.heading, 1.8 * dt);
+
+        if (this.speed < WORLD.takeoffSpeed) {
+          this.speed = Math.min(
+            WORLD.takeoffSpeed,
+            this.speed + WORLD.takeoffAcceleration * dt,
+          );
+        }
+
+        const lateralOffset = (this.pos.x - runway.threshold.x) * lateral.x
+          + (this.pos.z - runway.threshold.z) * lateral.z;
+        const correction = lateralOffset * Math.min(1, dt * 5);
+        this.pos.x -= lateral.x * correction;
+        this.pos.z -= lateral.z * correction;
+        this.pos.x += axis.x * this.speed * dt;
+        this.pos.z += axis.z * this.speed * dt;
+
+        const along = (this.pos.x - runway.threshold.x) * axis.x
+          + (this.pos.z - runway.threshold.z) * axis.z;
+        const hasRotated = along > runway.length * 0.6;
+        if (hasRotated) {
+          this.pos.y += 5.2 * dt;
+          this.visualPitch = THREE.MathUtils.damp(this.visualPitch, -0.11, 3, dt);
+        } else {
+          this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 5, dt);
+        }
+
+        const pastEnd = (this.pos.x - runway.departureEnd.x) * axis.x
+          + (this.pos.z - runway.departureEnd.z) * axis.z > 4;
+
+        if (pastEnd && this.pos.y > 3) {
+          this.setState('AIRBORNE');
+          this.flightTime = 0;
+          this.requestApproach = false;
+          this.patternHold = false;
+          this.holdsRunway = false;
+          this.onRunway = false;
+          this.orbitDirection = runway.pattern;
+          this.orbitAltitude = WORLD.orbitAltitude;
+          this.buildClimbRoute(this.runwayId);
+          this.playOneShot('gear-close');
+          this.playOneShot('bay-close');
+        }
+      }
+
+      updateAirborne(dt) {
+        this.flightTime += dt;
+        if (this.goAroundTimer > 0) {
+          this.goAroundTimer = Math.max(0, this.goAroundTimer - dt);
+        }
+
+        if (this.route.length > 0) {
+          if (this.moveRoute(dt)) {
+            this.clearRoute();
+            this.enterOrbitFromCurrentPosition();
+          }
+        } else {
+          this.speed = THREE.MathUtils.damp(this.speed, WORLD.cruiseSpeed, 1.2, dt);
+          this.updateOrbitPosition(dt);
+        }
+
+        this.pos.y += (this.orbitAltitude - this.pos.y) * Math.min(1, dt * 0.65);
+        this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 3, dt);
+
+        if (!this.requestApproach && this.flightTime > 16) {
+          this.requestApproach = true;
+        }
+      }
+
+      updateApproach(dt) {
+        const runway = RUNWAYS[this.runwayId] ?? RUNWAYS['17L'];
+        const distanceToThreshold = Math.hypot(
+          this.pos.x - runway.threshold.x,
+          this.pos.z - runway.threshold.z,
+        );
+        const runwayConflict = aircraftList.some(
+          (other) => other.id !== this.id
+            && other.runwayId === this.runwayId
+            && (other.holdsRunway
+              || other.state === 'LINEUP'
+              || other.state === 'TAKEOFF'
+              || other.state === 'LANDING'),
+        ) || Boolean(crossingForRunway(this.runwayId));
+        if (distanceToThreshold < 260 && this.pos.y < 90 && runwayConflict) {
+          this.goAround('runway occupied on short final');
+          return;
+        }
+        if (this.moveRoute(dt)) {
+          this.setState('LANDING');
+          this.holdsRunway = true;
+          this.speed = Math.max(this.speed, 28);
+          this.pos.y = 0.035;
+          this.visualPitch = 0;
+        }
+        this.visualPitch = THREE.MathUtils.damp(this.visualPitch, -0.035, 4, dt);
+      }
+
+      updateLanding(dt) {
+        const runway = RUNWAYS[this.runwayId] ?? RUNWAYS['17L'];
+        const axis = runway.axis;
+        const lateral = new THREE.Vector3(-axis.z, 0, axis.x);
+        this.heading = turnToward(this.heading, runway.heading, 1.2 * dt);
+        this.speed = THREE.MathUtils.damp(this.speed, 16, 1.65, dt);
+        const lateralOffset = (this.pos.x - runway.threshold.x) * lateral.x
+          + (this.pos.z - runway.threshold.z) * lateral.z;
+        const correction = lateralOffset * Math.min(1, dt * 5);
+        this.pos.x -= lateral.x * correction;
+        this.pos.z -= lateral.z * correction;
+        this.pos.x += axis.x * this.speed * dt;
+        this.pos.z += axis.z * this.speed * dt;
+        this.pos.y = 0.035;
+        this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0.025, 4, dt);
+
+        const along = (this.pos.x - runway.threshold.x) * axis.x
+          + (this.pos.z - runway.threshold.z) * axis.z;
+        const turnOff = along > runway.landingExitAlong;
+
+        if (turnOff) {
+          this.holdsRunway = false;
+          this.setState('TAXI_IN');
+          this.buildTaxiInRoute(this.runwayId);
+        }
+      }
+
+      syncTransform() {
+        this.root.position.copy(this.pos);
+        this.root.rotation.y = this.heading;
+        this.model.rotation.x = this.visualPitch;
+        this.ring.visible = this.pos.y < 1.2;
+        this.ring.position.y = 0.05;
+      }
+
+      refreshLabel(force = false, dt = 0) {
+        this.labelTimer -= dt;
+        if (!force && this.labelTimer > 0) return;
+        this.labelTimer = 0.45;
+
+        const altitudeText = this.pos.y > 10
+          ? ` · ${Math.round(this.pos.y * 3.28084 / 100).toString().padStart(3, '0')}00 ft`
+          : '';
+        const text = `${this.callsign}|${this.type} · ${this.displayState}${altitudeText}`;
+        if (text === this.lastLabelText) return;
+        this.lastLabelText = text;
+        drawAircraftLabel(this.label, this);
+      }
+
+      get displayState() {
+        if (this.state === 'AIRBORNE' && this.goAroundTimer > 0) return 'GO AROUND';
+        if (this.crossingActive && this.crossingRunwayId) {
+          return `CROSSING ${this.crossingRunwayId}`;
+        }
+        if (this.crossingRequested && this.crossingRunwayId) {
+          return `HOLD CROSSING ${this.crossingRunwayId}`;
+        }
+        if (this.state === 'AIRBORNE' && this.patternHold) return 'HOLDING';
+        return this.state.replaceAll('_', ' ');
+      }
+    }
+
+    // ── Canvas sprite labels ────────────────────────────────────────────────
+    function makeAircraftLabel(aircraft) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 160;
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.minFilter = THREE.LinearFilter;
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(29, 7.25, 1);
+      sprite.position.set(0, 10.5, 0);
+      sprite.renderOrder = 20;
+      return { canvas, ctx: canvas.getContext('2d'), texture, sprite };
+    }
+
+    function drawAircraftLabel(label, aircraft) {
+      const ctx = label.ctx;
+      const { canvas } = label;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const bg = ctx.createLinearGradient(0, 24, 0, 136);
+      bg.addColorStop(0, 'rgba(6, 12, 19, 0.88)');
+      bg.addColorStop(1, 'rgba(4, 8, 13, 0.66)');
+      roundRect(ctx, 6, 22, canvas.width - 12, 116, 22);
+      ctx.fillStyle = bg;
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(190, 221, 245, 0.22)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = aircraft.color;
+      roundRect(ctx, 6, 22, 14, 116, 7);
+      ctx.fill();
+
+      ctx.fillStyle = '#eaf5ff';
+      ctx.font = '700 43px ui-monospace, Menlo, Consolas, monospace';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(aircraft.callsign, 38, 76);
+
+      ctx.fillStyle = aircraft.color;
+      ctx.font = '600 22px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillText(`${aircraft.type} · ${aircraft.displayState}`, 39, 112);
+
+      const priorityLabel = ['HIGH', 'NORMAL', 'LOW'][aircraft.priority] ?? 'NORMAL';
+      ctx.fillStyle = 'rgba(190, 211, 228, 0.58)';
+      ctx.font = '600 16px ui-monospace, Menlo, Consolas, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`PRI ${priorityLabel}`, canvas.width - 26, 61);
+      if (aircraft.pos.y > 10) {
+        ctx.fillText(`${Math.round(aircraft.pos.y * 3.28084).toLocaleString()} ft`, canvas.width - 26, 111);
+      }
+      ctx.textAlign = 'left';
+
+      label.texture.needsUpdate = true;
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      const r = Math.min(radius, width / 2, height / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+    }
+
+    // ── Ground vehicles: simple loop-following props with wheel animations ──
+    class GroundVehicle {
+      constructor(gltf, start, route) {
+        this.model = gltf.scene.clone(true);
+        this.model.traverse((object) => {
+          if (!object.isMesh) return;
+          object.castShadow = true;
+          object.receiveShadow = true;
+        });
+
+        this.root = new THREE.Group();
+        this.root.add(this.model);
+        this.root.position.copy(start);
+        this.root.position.y = 0.035;
+
+        this.mixer = new THREE.AnimationMixer(this.model);
+        this.wheelAction = null;
+        for (const clip of gltf.animations) {
+          if (clip.name === 'wheel-roll') {
+            this.wheelAction = this.mixer.clipAction(clip);
+            this.wheelAction.play();
+          }
+        }
+
+        // A small service loop on the west apron, clear of the gate lane.
+        this.route = route ?? [start.clone()];
+        this.routeIndex = 0;
+        this.speed = 3.6;
+        this.heading = 0;
+        this.target = this.route[0];
+      }
+
+      update(dt) {
+        this.mixer.update(dt);
+        if (this.wheelAction) this.wheelAction.timeScale = 2.2;
+
+        const target = this.route[this.routeIndex];
+        const dx = target.x - this.root.position.x;
+        const dz = target.z - this.root.position.z;
+        const distance = Math.hypot(dx, dz);
+
+        if (distance < 0.6) {
+          this.routeIndex = (this.routeIndex + 1) % this.route.length;
+          return;
+        }
+
+        const desired = Math.atan2(dx, dz);
+        this.heading = turnToward(this.heading, desired, 2.1 * dt);
+        const step = Math.min(this.speed * dt, distance);
+        this.root.position.x += Math.sin(this.heading) * step;
+        this.root.position.z += Math.cos(this.heading) * step;
+        this.root.position.y = 0.035;
+        this.root.rotation.y = this.heading;
+      }
+    }
+
+    // ── Helicopter operations: separate from fixed-wing ATC ────────────────
+    const HELIPADS = [
+      {
+        id: 'H1',
+        name: 'Heliplex',
+        x: 1162,
+        z: -988,
+        patternRadius: 330,
+        patternStart: -0.35,
+        heading: 0.25,
+      },
+      {
+        id: 'H2',
+        name: 'Pad 8',
+        x: 387,
+        z: -967,
+        patternRadius: 235,
+        patternStart: 1.1,
+        heading: -0.55,
+      },
+    ];
+
+    const helicopterList = [];
+
+    class Helicopter {
+      constructor(source, spec) {
+        this.id = spec.id;
+        this.callsign = spec.callsign;
+        this.type = spec.type;
+        this.color = spec.color;
+        this.priority = 1;
+        this.pad = spec.pad;
+        this.pos = new THREE.Vector3(this.pad.x, 0.035, this.pad.z);
+        this.heading = this.pad.heading;
+        this.speed = 0;
+        this.routeSpeed = 20;
+        this.route = [];
+        this.routeIndex = 0;
+        this.state = 'PARKED';
+        this.stateTime = 0;
+        this.dwell = spec.dwell ?? 16;
+        this.rotorSpin = 0;
+        this.rotorTarget = 0;
+        this.rotorRPMSpeed = spec.rotorRPMSpeed ?? 32;
+        this.patternDirection = spec.patternDirection ?? 1;
+        this.visualPitch = 0;
+        this.labelTimer = 0;
+        this.lastLabelText = '';
+
+        this.root = new THREE.Group();
+        this.root.name = `${spec.callsign}-helicopter`;
+        this.root.position.copy(this.pos);
+
+        this.model = source.scene.clone(true);
+        this.model.traverse((object) => {
+          if (!object.isMesh) return;
+          object.castShadow = true;
+          object.receiveShadow = true;
+        });
+        this.root.add(this.model);
+
+        this.mainRotors = [];
+        this.tailRotors = [];
+        this.model.traverse((object) => {
+          const name = object.name.toLowerCase();
+          if (name.includes('rotor-main')) this.mainRotors.push(object);
+          if (name.includes('rotor-tail')) this.tailRotors.push(object);
+        });
+
+        this.ring = new THREE.Mesh(
+          new THREE.RingGeometry(3.6, 3.95, 32),
+          new THREE.MeshBasicMaterial({
+            color: spec.color,
+            transparent: true,
+            opacity: 0.55,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          }),
+        );
+        this.ring.rotation.x = -Math.PI / 2;
+        this.ring.position.y = 0.05;
+        this.root.add(this.ring);
+
+        this.label = makeAircraftLabel(this);
+        this.label.sprite.scale.set(23, 5.75, 1);
+        this.label.sprite.position.set(0, 8.5, 0);
+        this.root.add(this.label.sprite);
+
+        this.syncTransform();
+        this.refreshLabel(true);
+      }
+
+      addToScene(sceneRef) {
+        sceneRef.add(this.root);
+      }
+
+      setState(state) {
+        if (this.state === state) return;
+        this.state = state;
+        this.stateTime = 0;
+        this.refreshLabel(true);
+      }
+
+      setRoute(points, speed = 20) {
+        this.route = points;
+        this.routeIndex = 0;
+        this.routeSpeed = speed;
+      }
+
+      buildCircuit() {
+        const pad = this.pad;
+        const radius = pad.patternRadius;
+        const direction = this.patternDirection;
+        const start = pad.patternStart;
+        const points = [];
+        for (let step = 0; step < 5; step += 1) {
+          const angle = start + direction * step * (Math.PI * 2 / 5);
+          const r = step === 0 ? radius * 0.72 : radius;
+          points.push(routePoint(
+            pad.x + Math.cos(angle) * r,
+            pad.z + Math.sin(angle) * r,
+            step < 2 ? 115 : 145,
+            step === 0 ? 20 : 31,
+          ));
+        }
+        points.push(routePoint(pad.x, pad.z, 48, 9));
+        this.setRoute(points, 24);
+      }
+
+      moveRoute(dt) {
+        if (this.route.length === 0) return true;
+        while (this.routeIndex < this.route.length) {
+          const target = this.route[this.routeIndex];
+          const dx = target.x - this.pos.x;
+          const dz = target.z - this.pos.z;
+          const distance = Math.hypot(dx, dz);
+          const turnRate = 1.05;
+          const captureRadius = Math.max(12, (this.speed / turnRate) * 1.05);
+
+          if (distance < captureRadius) {
+            this.routeIndex += 1;
+            continue;
+          }
+
+          const desiredHeading = Math.atan2(dx, dz);
+          this.heading = turnToward(this.heading, desiredHeading, turnRate * dt);
+          const requestedSpeed = target.speed ?? this.routeSpeed;
+          this.speed += THREE.MathUtils.clamp(
+            requestedSpeed - this.speed,
+            -6 * dt,
+            6 * dt,
+          );
+          const step = Math.max(0, this.speed * dt);
+          if (step >= distance) {
+            this.pos.x = target.x;
+            this.pos.z = target.z;
+            this.routeIndex += 1;
+            if (this.routeIndex >= this.route.length) {
+              this.pos.y += (target.y - this.pos.y) * Math.min(1, dt * 2.2);
+              return true;
+            }
+          } else {
+            this.pos.x += Math.sin(this.heading) * step;
+            this.pos.z += Math.cos(this.heading) * step;
+            this.pos.y += (target.y - this.pos.y) * Math.min(1, dt * 0.9);
+            return false;
+          }
+        }
+        return true;
+      }
+
+      update(dt) {
+        this.stateTime += dt;
+        this.rotorSpin = THREE.MathUtils.damp(
+          this.rotorSpin,
+          this.rotorTarget,
+          this.rotorTarget > this.rotorSpin ? 1.4 : 0.9,
+          dt,
+        );
+        const rotorStep = this.rotorSpin * this.rotorRPMSpeed * dt;
+        for (const rotor of this.mainRotors) rotor.rotation.y += rotorStep;
+        for (const rotor of this.tailRotors) rotor.rotation.x += rotorStep * 1.8;
+
+        switch (this.state) {
+          case 'PARKED':
+            this.speed = THREE.MathUtils.damp(this.speed, 0, 4, dt);
+            this.pos.y = 0.035;
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0, 4, dt);
+            if (this.stateTime > this.dwell && this.rotorSpin < 0.06) {
+              this.setState('SPOOL');
+            }
+            break;
+          case 'SPOOL':
+            this.rotorTarget = 1;
+            this.speed = 0;
+            if (this.rotorSpin > 0.93) this.setState('LIFT_OFF');
+            break;
+          case 'LIFT_OFF':
+            this.rotorTarget = 1;
+            this.speed = 0;
+            this.pos.y = Math.min(42, this.pos.y + 8.5 * dt);
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0.015, 3, dt);
+            if (this.pos.y >= 41.5) {
+              this.pos.y = 42;
+              this.buildCircuit();
+              this.setState('DEPART');
+            }
+            break;
+          case 'DEPART':
+          case 'PATTERN':
+          case 'APPROACH':
+            this.rotorTarget = 1;
+            if (this.routeIndex >= this.route.length - 1) this.setState('APPROACH');
+            else if (this.routeIndex >= 2) this.setState('PATTERN');
+            if (this.moveRoute(dt)) {
+              this.setState('LANDING');
+              this.route = [];
+            }
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0.025, 3, dt);
+            break;
+          case 'LANDING':
+            this.rotorTarget = 1;
+            this.speed = 0;
+            this.pos.y -= 4.2 * dt;
+            this.visualPitch = THREE.MathUtils.damp(this.visualPitch, 0.01, 3, dt);
+            this.heading = turnToward(this.heading, this.pad.heading, 0.4 * dt);
+            if (this.pos.y <= 0.035) {
+              this.pos.y = 0.035;
+              this.dwell = 24 + Math.random() * 22;
+              this.rotorTarget = 0;
+              this.setState('PARKED');
+            }
+            break;
+        }
+
+        this.syncTransform();
+        this.refreshLabel(false, dt);
+      }
+
+      syncTransform() {
+        this.root.position.copy(this.pos);
+        this.root.rotation.y = this.heading;
+        this.model.rotation.x = this.visualPitch;
+        this.ring.visible = this.pos.y < 2;
+        this.ring.position.y = 0.05;
+      }
+
+      refreshLabel(force = false, dt = 0) {
+        this.labelTimer -= dt;
+        if (!force && this.labelTimer > 0) return;
+        this.labelTimer = 0.45;
+        const altitude = this.pos.y > 10
+          ? ` · ${Math.round(this.pos.y * 3.28084 / 100).toString().padStart(3, '0')}00 ft`
+          : '';
+        const text = `${this.callsign}|${this.type} · ${this.displayState}${altitude}`;
+        if (text === this.lastLabelText) return;
+        this.lastLabelText = text;
+        drawAircraftLabel(this.label, this);
+      }
+
+      get displayState() {
+        return this.state.replaceAll('_', ' ');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 5. DECISION SYSTEM — RULES TODAY, LOCAL LLM TOMORROW
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const decisionHistory = [];
+    let decisionNumber = 0;
+    let decisionTimer = 1.2;
+    let decisionInFlight = false;
+    let simulationTime = 0;
+    let startupScenario = null;
+
+    const STARTUP_AIRCRAFT = [
+      { id: 'ac-1', callsign: 'N5520T', type: 'TRAINER' },
+      { id: 'ac-2', callsign: 'N731TW', type: 'TWIN' },
+      { id: 'ac-3', callsign: 'N442LB', type: 'LOW WING' },
+      { id: 'ac-4', callsign: 'N908J', type: 'BIZJET' },
+      { id: 'ac-5', callsign: 'N117CT', type: 'TRAINER' },
+    ];
+
+    function activeRunwayForWind(direction) {
+      const wind = THREE.MathUtils.degToRad(direction);
+      let best = '17L';
+      let bestDelta = Infinity;
+      for (const runwayId of RUNWAY_CANDIDATES) {
+        const delta = Math.abs(
+          shortestAngle(wind, THREE.MathUtils.degToRad(RUNWAY_WIND_HEADINGS[runwayId])),
+        );
+        if (delta < bestDelta) {
+          best = runwayId;
+          bestDelta = delta;
+        }
+      }
+      return best;
+    }
+
+    function activeRunwaysForWind(direction) {
+      const primary = activeRunwayForWind(direction);
+      const mate = PARALLEL_MATE[primary];
+      return mate ? [primary, mate] : [primary];
+    }
+
+    function runwayFromWind() {
+      return activeRunwayForWind(WEATHER.windDirection);
+    }
+
+    function randomSeed() {
+      if (!globalThis.crypto?.getRandomValues) {
+        return Math.floor(Math.random() * 0xffffffff) >>> 0;
+      }
+      const values = new Uint32Array(1);
+      globalThis.crypto.getRandomValues(values);
+      return values[0] >>> 0;
+    }
+
+    function randomBetween(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function randomInteger(min, max) {
+      return Math.floor(randomBetween(min, max + 1));
+    }
+
+    function shuffledCopy(items) {
+      const copy = [...items];
+      for (let index = copy.length - 1; index > 0; index -= 1) {
+        const swap = Math.floor(Math.random() * (index + 1));
+        [copy[index], copy[swap]] = [copy[swap], copy[index]];
+      }
+      return copy;
+    }
+
+    function fixedStartupScenario() {
+      const byId = {
+        'ac-1': { state: 'PARKED', parking: 0, priority: 2, dwell: 6, wait: 0, flightTime: 0, orbitAngle: 0 },
+        'ac-2': { state: 'HOLD_SHORT', parking: 1, priority: 1, dwell: 0, wait: 12, flightTime: 0, orbitAngle: 0 },
+        'ac-3': { state: 'PARKED', parking: 2, priority: 2, dwell: 16, wait: 0, flightTime: 0, orbitAngle: 0 },
+        'ac-4': { state: 'AIRBORNE', parking: 4, priority: 0, dwell: 0, wait: 0, flightTime: 4, orbitAngle: 0.72 },
+        'ac-5': { state: 'PARKED', parking: 3, priority: 2, dwell: 24, wait: 0, flightTime: 0, orbitAngle: 0 },
+      };
+      return {
+        source: 'fixed',
+        seed: 0,
+        windDirection: 185,
+        windSpeed: 8,
+        activeRunway: '17L',
+        activeRunways: ['17L', '17R'],
+        aircraft: STARTUP_AIRCRAFT.map((meta) => ({ id: meta.id, ...byId[meta.id] })),
+      };
+    }
+
+    function localStartupScenario(source, seed) {
+      const airborneCount = Math.random() < 0.55 ? 1 : 2;
+      const states = shuffledCopy([
+        'HOLD_SHORT',
+        ...Array(airborneCount).fill('AIRBORNE'),
+        ...Array(STARTUP_AIRCRAFT.length - airborneCount - 1).fill('PARKED'),
+      ]);
+      const parking = shuffledCopy(GATE_SLOTS.map((_x, index) => index));
+      const priorities = shuffledCopy([0, 1, 2, 2, 2]);
+      const plannedRunway = RUNWAY_CANDIDATES[randomInteger(0, RUNWAY_CANDIDATES.length - 1)];
+      const windDirection = Math.round(
+        (RUNWAY_WIND_HEADINGS[plannedRunway] + randomBetween(-32, 32) + 360) % 360,
+      );
+      const windSpeed = randomInteger(4, 13);
+      const orbitBase = randomBetween(0, Math.PI * 2);
+      const activeRunway = activeRunwayForWind(windDirection);
+      let airborneSeen = 0;
+
+      return {
+        source,
+        seed,
+        windDirection,
+        windSpeed,
+        activeRunway,
+        activeRunways: activeRunwaysForWind(windDirection),
+        aircraft: STARTUP_AIRCRAFT.map((meta, index) => {
+          const state = states[index];
+          let orbitAngle = 0;
+          if (state === 'AIRBORNE') {
+            orbitAngle = (orbitBase + (airborneSeen === 0 ? 0 : randomBetween(2.5, 3.5))) % (Math.PI * 2);
+            airborneSeen += 1;
+          }
+          return {
+            id: meta.id,
+            state,
+            parking: parking[index],
+            priority: priorities[index],
+            dwell: randomInteger(3, 30),
+            wait: randomInteger(2, 20),
+            flightTime: Math.round(randomBetween(0, 12)),
+            orbitAngle,
+          };
+        }),
+      };
+    }
+
+    function startupPrompt(seed, windDirection, windSpeed) {
+      return [
+        'You are the tower supervisor opening a fresh VFR session at Centennial Airport (KAPA).',
+        'Return ONLY compact JSON. Do not include markdown, code fences, or prose.',
+        'Create a different, safe starting picture on every load.',
+        `The load plan has already selected windDirection ${windDirection} and windSpeed ${windSpeed}. Use exactly those values. ` +
+          `They favor runways ${activeRunwaysForWind(windDirection).join(' and ')}; do not change them.`,
+        'Roster: ac-1 N5520T TRAINER; ac-2 N731TW TWIN; ac-3 N442LB LOW WING; ac-4 N908J BIZJET; ac-5 N117CT TRAINER.',
+        'Constraints:',
+        '- Include exactly those five aircraft ids, each once.',
+        '- Exactly one aircraft is HOLD_SHORT; one or two are AIRBORNE; the rest are PARKED.',
+        '- parking is a unique gate slot integer from 0 through 4 for every aircraft.',
+        '- priority is 0 (high), 1 (normal), or 2 (low), with at least two different values represented.',
+        '- windDirection is an integer from 0 through 359; windSpeed is from 3 through 14 knots.',
+        '- HOLD_SHORT wait is 2 through 20 seconds.',
+        '- PARKED dwell is 3 through 30 seconds.',
+        '- AIRBORNE flightTime is 0 through 12 seconds and orbitAngle is 0 through 6.283 radians.',
+        '- If two aircraft are AIRBORNE, their orbitAngle values must differ by at least 1.3 radians.',
+        `The hold-short aircraft will use the primary runway ${activeRunwayForWind(windDirection)}.`,
+        'Return exactly this shape: {"windDirection":185,"windSpeed":8,"aircraft":[{"id":"ac-1","state":"PARKED","parking":0,"priority":2,"dwell":8,"wait":0,"flightTime":0,"orbitAngle":0},{"id":"ac-2","state":"HOLD_SHORT","parking":1,"priority":1,"dwell":0,"wait":6,"flightTime":0,"orbitAngle":0},{"id":"ac-3","state":"PARKED","parking":2,"priority":2,"dwell":14,"wait":0,"flightTime":0,"orbitAngle":0},{"id":"ac-4","state":"AIRBORNE","parking":3,"priority":0,"dwell":0,"wait":0,"flightTime":3,"orbitAngle":1.2},{"id":"ac-5","state":"PARKED","parking":4,"priority":2,"dwell":22,"wait":0,"flightTime":0,"orbitAngle":0}]}',
+        `Random seed: ${seed}. Generate the startup JSON now.`,
+      ].join(' ');
+    }
+
+    async function askStartupModel(seed, windDirection, windSpeed) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const messages = [
+        { role: 'system', content: startupPrompt(seed, windDirection, windSpeed) },
+        { role: 'user', content: `Seed: ${seed}. Return the startup scenario JSON.` },
+      ];
+
+      try {
+        if (AI_CONFIG.mode === 'ollama') {
+          const response = await fetch(AI_CONFIG.ollama.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: AI_CONFIG.ollama.model,
+              stream: false,
+              format: 'json',
+              think: false,
+              options: { temperature: 1.0, seed, num_predict: 1400 },
+              messages,
+            }),
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
+          const data = await response.json();
+          return parseModelJson(data.message?.content);
+        }
+
+        if (AI_CONFIG.mode === 'openai') {
+          const response = await fetch(AI_CONFIG.openai.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${AI_CONFIG.openai.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: AI_CONFIG.openai.model,
+              temperature: 1.0,
+              response_format: { type: 'json_object' },
+              messages,
+            }),
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`OpenAI-compatible HTTP ${response.status}`);
+          const data = await response.json();
+          return parseModelJson(data.choices?.[0]?.message?.content);
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+      return null;
+    }
+
+    function normalizeStartupScenario(raw, seed, source) {
+      if (!raw || typeof raw !== 'object') return null;
+      const entries = Array.isArray(raw.aircraft)
+        ? raw.aircraft
+        : Array.isArray(raw.traffic)
+          ? raw.traffic
+          : null;
+      if (!entries || entries.length !== STARTUP_AIRCRAFT.length) return null;
+
+      const weather = raw.weather && typeof raw.weather === 'object' ? raw.weather : raw;
+      const windDirection = Number(weather.windDirection ?? weather.direction ?? weather.fromDegrees);
+      const windSpeed = Number(weather.windSpeed ?? weather.speed ?? weather.knots);
+      if (!Number.isFinite(windDirection) || !Number.isFinite(windSpeed)) return null;
+
+      const byId = new Map();
+      for (const entry of entries) {
+        if (!entry || typeof entry !== 'object') return null;
+        const key = String(
+          entry.id ?? entry.aircraftId ?? entry.callsign ?? '',
+        ).trim().toLowerCase();
+        const meta = STARTUP_AIRCRAFT.find(
+          (candidate) => candidate.id === key || candidate.callsign.toLowerCase() === key,
+        );
+        if (!meta || byId.has(meta.id)) return null;
+        byId.set(meta.id, entry);
+      }
+      if (byId.size !== STARTUP_AIRCRAFT.length) return null;
+
+      const normalized = [];
+      const usedParking = new Set();
+      const openParking = [];
+      let holdCount = 0;
+      let airborneCount = 0;
+
+      for (const meta of STARTUP_AIRCRAFT) {
+        const entry = byId.get(meta.id);
+        let state = String(entry.state ?? entry.status ?? '')
+          .toUpperCase()
+          .replace(/[\s-]+/g, '_');
+        if (state === 'HOLD' || state === 'HOLDING' || state === 'HOLDING_SHORT') {
+          state = 'HOLD_SHORT';
+        }
+        if (!['PARKED', 'HOLD_SHORT', 'AIRBORNE'].includes(state)) return null;
+        if (state === 'HOLD_SHORT') holdCount += 1;
+        if (state === 'AIRBORNE') airborneCount += 1;
+
+        const requestedParking = Number(entry.parking ?? entry.gateSlot ?? entry.gate);
+        let parking = null;
+        if (
+          Number.isInteger(requestedParking)
+          && requestedParking >= 0
+          && requestedParking < GATE_SLOTS.length
+          && !usedParking.has(requestedParking)
+        ) {
+          parking = requestedParking;
+          usedParking.add(parking);
+        }
+
+        const priority = THREE.MathUtils.clamp(
+          Math.round(Number(entry.priority ?? 1)),
+          0,
+          2,
+        );
+        const dwell = THREE.MathUtils.clamp(Number(entry.dwell ?? 12), 3, 30);
+        const wait = THREE.MathUtils.clamp(Number(entry.wait ?? 6), 2, 20);
+        const flightTime = THREE.MathUtils.clamp(Number(entry.flightTime ?? 4), 0, 12);
+        const orbitAngle = Number.isFinite(Number(entry.orbitAngle))
+          ? ((Number(entry.orbitAngle) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
+          : Math.random() * Math.PI * 2;
+
+        normalized.push({
+          id: meta.id,
+          state,
+          parking,
+          priority,
+          dwell,
+          wait,
+          flightTime,
+          orbitAngle,
+        });
+      }
+
+      if (holdCount !== 1 || airborneCount < 1 || airborneCount > 2) return null;
+
+      for (let index = 0; index < GATE_SLOTS.length; index += 1) {
+        if (!usedParking.has(index)) openParking.push(index);
+      }
+      for (const aircraft of normalized) {
+        if (aircraft.parking === null) aircraft.parking = openParking.shift();
+      }
+
+      const airborne = normalized.filter((aircraft) => aircraft.state === 'AIRBORNE');
+      if (airborne.length === 2) {
+        const separation = Math.abs(
+          Math.atan2(
+            Math.sin(airborne[0].orbitAngle - airborne[1].orbitAngle),
+            Math.cos(airborne[0].orbitAngle - airborne[1].orbitAngle),
+          ),
+        );
+        if (separation < 1.3) {
+          airborne[1].orbitAngle = (airborne[0].orbitAngle + 2.8) % (Math.PI * 2);
+        }
+      }
+
+      const normalizedWind = ((windDirection % 360) + 360) % 360;
+      return {
+        source,
+        seed,
+        windDirection: normalizedWind,
+        windSpeed: THREE.MathUtils.clamp(windSpeed, 3, 14),
+        activeRunway: activeRunwayForWind(normalizedWind),
+        activeRunways: activeRunwaysForWind(normalizedWind),
+        aircraft: normalized,
+      };
+    }
+
+    async function generateStartupScenario() {
+      const scenarioMode = new URLSearchParams(location.search).get('scenario') ?? 'random';
+      if (scenarioMode === 'fixed') return fixedStartupScenario();
+
+      const seed = randomSeed();
+      const plan = localStartupScenario(AI_CONFIG.mode === 'rules' ? 'rules-random' : 'fallback-random', seed);
+      if (AI_CONFIG.mode === 'rules') return plan;
+
+      let lastError = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const attemptSeed = (seed + attempt * 0x9e3779b9) >>> 0;
+        try {
+          const raw = await askStartupModel(attemptSeed, plan.windDirection, plan.windSpeed);
+          const scenario = normalizeStartupScenario(raw, attemptSeed, AI_CONFIG.mode);
+          if (!scenario) {
+            console.warn('[TOWER] Rejected startup scenario:', raw);
+            throw new Error('Model returned an invalid startup scenario');
+          }
+          scenario.windDirection = plan.windDirection;
+          scenario.windSpeed = plan.windSpeed;
+          scenario.activeRunway = activeRunwayForWind(plan.windDirection);
+          scenario.activeRunways = activeRunwaysForWind(plan.windDirection);
+          const airborne = scenario.aircraft.filter((aircraft) => aircraft.state === 'AIRBORNE').length;
+          console.info(
+            `%c[TOWER] %cStartup: ${scenario.source} · wind ${String(scenario.windDirection).padStart(3, '0')}° at ${scenario.windSpeed} kt · RWY ${scenario.activeRunways.join('/')} · ${airborne} airborne`,
+            'color:#67d7ff;font-weight:700',
+            'color:#9eb1c3',
+          );
+          return scenario;
+        } catch (error) {
+          lastError = error;
+          if (attempt === 0) {
+            console.warn('[TOWER] Startup attempt failed, retrying:', error.message);
+          }
+        }
+      }
+      console.warn('[TOWER] Startup scenario fallback:', lastError?.message ?? 'invalid model response');
+      return plan;
+    }
+
+    WEATHER.activeRunway = runwayFromWind();
+    WEATHER.activeRunways = activeRunwaysForWind(WEATHER.windDirection);
+
+    function reservationForRunway(runwayId) {
+      return aircraftList.find(
+        (aircraft) => aircraft.holdsRunway && aircraft.runwayId === runwayId,
+      ) ?? null;
+    }
+
+    function crossingForRunway(runwayId) {
+      return aircraftList.find(
+        (aircraft) => aircraft.crossingActive
+          && aircraft.crossingRunwayId === runwayId,
+      ) ?? null;
+    }
+
+    function runwayOccupied(runwayId) {
+      return Boolean(
+        reservationForRunway(runwayId) || crossingForRunway(runwayId),
+      );
+    }
+
+    function gateSlotFor(aircraft) {
+      return GATE_SLOTS.findIndex((slot) => Math.abs(slot - aircraft.gate.x) < 1);
+    }
+
+    function gateSlotOccupied(slot, excludeId = null) {
+      if (slot < 0) return false;
+      const x = GATE_SLOTS[slot];
+      return aircraftList.some(
+        (aircraft) => aircraft.id !== excludeId
+          && aircraft.state === 'PARKED'
+          && Math.abs(aircraft.gate.x - x) < 1,
+      );
+    }
+
+    function reassignGateIfOccupied(aircraft) {
+      const current = gateSlotFor(aircraft);
+      if (!gateSlotOccupied(current, aircraft.id)) return current;
+      const used = new Set(
+        aircraftList
+          .filter((other) => other.id !== aircraft.id
+            && (other.state === 'PARKED' || other.state === 'TAXI_IN'))
+          .map(gateSlotFor),
+      );
+      const free = GATE_SLOTS.findIndex((_slot, index) => !used.has(index));
+      if (free < 0) {
+        aircraft.holdReason = 'Gate occupied; holding short of the ramp';
+        return null;
+      }
+      const nextGate = GATE_SLOTS[free];
+      console.info(`[GATE] ${aircraft.callsign} reassigned from stand ${current + 1} to ${free + 1}`);
+      aircraft.gate.x = nextGate;
+      aircraft.holdReason = '';
+      return free;
+    }
+
+    function freeActiveRunways() {
+      return WEATHER.activeRunways.filter((runwayId) => !runwayOccupied(runwayId));
+    }
+
+    function taxiRunwayFor(aircraft) {
+      const counts = new Map(WEATHER.activeRunways.map((runwayId) => [runwayId, 0]));
+      for (const other of aircraftList) {
+        if (other.state !== 'TAXI_OUT' && other.state !== 'HOLD_SHORT') continue;
+        if (!counts.has(other.runwayId)) continue;
+        counts.set(other.runwayId, counts.get(other.runwayId) + 1);
+      }
+      if (aircraft.runwayId && counts.has(aircraft.runwayId)) {
+        return aircraft.runwayId;
+      }
+      return [...WEATHER.activeRunways].sort((a, b) => counts.get(a) - counts.get(b))[0];
+    }
+
+    function approachRunwayFor(aircraft) {
+      if (aircraft.runwayId && !runwayOccupied(aircraft.runwayId)) {
+        return aircraft.runwayId;
+      }
+      return freeActiveRunways()[0] ?? WEATHER.activeRunway;
+    }
+
+    function waitScore(aircraft) {
+      // Lower `priority` numbers are more important. Waiting time is the tie-breaker.
+      return (2 - aircraft.priority) * 35 + aircraft.waitTime;
+    }
+
+    function pickBest(list) {
+      return [...list].sort((a, b) => waitScore(b) - waitScore(a))[0] ?? null;
+    }
+
+    function buildSnapshot() {
+      const runways = WEATHER.activeRunways.map((runwayId) => {
+        const reservation = reservationForRunway(runwayId);
+        const crossing = crossingForRunway(runwayId);
+        return {
+          id: runwayId,
+          controller: controllerForRunway(runwayId).id,
+          busy: Boolean(reservation || crossing),
+          reservedBy: reservation?.callsign ?? crossing?.callsign ?? null,
+          crossingBy: crossing?.callsign ?? null,
+        };
+      });
+      return {
+        time: +simulationTime.toFixed(1),
+        wind: {
+          fromDegrees: WEATHER.windDirection,
+          knots: WEATHER.windSpeed,
+        },
+        activeRunway: WEATHER.activeRunway,
+        activeRunways: WEATHER.activeRunways,
+        runways,
+        runwayBusy: runways.some((runway) => runway.busy),
+        aircraft: aircraftList.map((aircraft) => ({
+          id: aircraft.id,
+          callsign: aircraft.callsign,
+          type: aircraft.type,
+          state: aircraft.displayState,
+          runway: aircraft.runwayId,
+          priority: ['HIGH', 'NORMAL', 'LOW'][aircraft.priority] ?? 'NORMAL',
+          waitingSeconds: Math.round(aircraft.waitTime),
+          requestTaxi: aircraft.requestTaxi,
+          requestTakeoff: aircraft.requestTakeoff,
+          requestApproach: aircraft.requestApproach,
+          holdsRunway: aircraft.holdsRunway,
+          requestCrossing: aircraft.crossingRequested,
+          crossingRunway: aircraft.crossingRunwayId,
+          crossingActive: aircraft.crossingActive,
+          altitudeMeters: Math.round(aircraft.pos.y),
+        })),
+      };
+    }
+
+    // This pure function is the built-in "brain". It sees only the snapshot,
+    // which makes it straightforward to replace with a local model response.
+    function ruleDecision(snapshot) {
+      const planes = aircraftList;
+      const holdShort = planes.filter((a) => a.state === 'HOLD_SHORT');
+      const parked = planes.filter((a) => a.state === 'PARKED' && a.requestTaxi);
+      const needsApproach = planes.filter(
+        (a) => a.state === 'AIRBORNE' && a.requestApproach,
+      );
+      const runways = WEATHER.activeRunways;
+
+      // Arrivals get first refusal of any free active runway.
+      for (const arrival of [...needsApproach].sort((a, b) => waitScore(b) - waitScore(a))) {
+        const runway = approachRunwayFor(arrival);
+        if (runwayOccupied(runway)) continue;
+        return {
+          action: 'CLEAR_APPROACH',
+          aircraftId: arrival.id,
+          runway,
+          reason:
+            `RWY ${runway} is clear. ${arrival.callsign} is cleared for the approach; ` +
+            `arrival traffic has priority over departures.`,
+        };
+      }
+
+      if (needsApproach.length > 0) {
+        const held = pickBest(needsApproach);
+        return {
+          action: 'HOLD',
+          aircraftId: held.id,
+          runway: held.runwayId ?? runways[0],
+          reason:
+            `${runways.map((runway) => `RWY ${runway}`).join(' and ')} are committed. ` +
+            `${held.callsign} holds in the pattern at ${Math.round(held.pos.y)} m.`,
+        };
+      }
+
+      const crossings = planes.filter(
+        (a) => a.crossingRequested
+          && a.crossingRunwayId
+          && (a.state === 'TAXI_OUT' || a.state === 'TAXI_IN'),
+      );
+      for (const crosser of [...crossings].sort((a, b) => waitScore(b) - waitScore(a))) {
+        const runway = crosser.crossingRunwayId;
+        if (!runways.includes(runway)) continue;
+        if (runwayOccupied(runway)) continue;
+        return {
+          action: 'CLEAR_CROSS',
+          aircraftId: crosser.id,
+          runway,
+          reason:
+            `${crosser.callsign} is cleared to cross RWY ${runway} on the south taxiway. ` +
+            'The runway is clear and no arrival or departure is using it.',
+        };
+      }
+
+      for (const departure of [...holdShort].sort((a, b) => waitScore(b) - waitScore(a))) {
+        const runway = runways.includes(departure.runwayId)
+          ? departure.runwayId
+          : taxiRunwayFor(departure);
+        if (runwayOccupied(runway)) continue;
+        const others = holdShort.filter((a) => a.id !== departure.id);
+        const priorityText = ['high', 'normal', 'low'][departure.priority] ?? 'normal';
+        return {
+          action: 'CLEAR_TAKEOFF',
+          aircraftId: departure.id,
+          runway,
+          reason:
+            `${departure.callsign} gets the next departure on RWY ${runway} (${priorityText} priority, ` +
+            `${Math.round(departure.waitTime)}s waiting). ` +
+            (others.length
+              ? `${others.map((a) => a.callsign).join(', ')} held on the ground.`
+              : 'Runway is clear.'),
+        };
+      }
+
+      if (holdShort.length > 0) {
+        const held = pickBest(holdShort);
+        return {
+          action: 'HOLD',
+          aircraftId: held.id,
+          runway: held.runwayId ?? runways[0],
+          reason:
+            `Active runways ${runways.join('/')} are occupied. ` +
+            `${held.callsign} remains at the hold-short line.`,
+        };
+      }
+
+      if (crossings.length > 0) {
+        const held = pickBest(crossings);
+        return {
+          action: 'HOLD',
+          aircraftId: held.id,
+          runway: held.crossingRunwayId,
+          reason:
+            `RWY ${held.crossingRunwayId} is occupied. ` +
+            `${held.callsign} holds short of the runway crossing.`,
+        };
+      }
+
+      if (parked.length > 0) {
+        const candidate = pickBest(parked);
+        const runway = taxiRunwayFor(candidate);
+        return {
+          action: 'CLEAR_TAXI',
+          aircraftId: candidate.id,
+          runway,
+          reason:
+            `${candidate.callsign} is cleared to taxi from the apron to RWY ${runway}. ` +
+            `Wind ${String(WEATHER.windDirection).padStart(3, '0')}° at ${WEATHER.windSpeed} kt favors this runway.`,
+        };
+      }
+
+      return {
+        action: 'MONITOR',
+        runway: WEATHER.activeRunway,
+        reason:
+          `RWY ${runways.join('/')} clear. No aircraft requesting pushback, departure, or approach.`,
+      };
+    }
+
+    // ── LLM ADAPTER ────────────────────────────────────────────────────────
+    // Send the same snapshot the rule engine receives. The reply must be JSON:
+    // {
+    //   "action": "CLEAR_TAXI" | "CLEAR_TAKEOFF" | "CLEAR_APPROACH" | "CLEAR_CROSS" | "HOLD" | "MONITOR",
+    //   "aircraftId": "ac-2" (optional for MONITOR),
+    //   "runway": "17L" | "17R" | "35R" | "35L" | "10" | "28",
+    //   "reason": "short human-readable explanation"
+    // }
+    // The adapter is intentionally boring: swap endpoint/model and the rest of
+    // the simulation continues to work unchanged.
+    function parseModelJson(content) {
+      if (content && typeof content === 'object') return content;
+      const text = String(content ?? '').trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/```$/i, '')
+        .trim();
+      try {
+        return JSON.parse(text);
+      } catch {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          try {
+            return JSON.parse(text.slice(start, end + 1));
+          } catch {
+            // Fall through to the descriptive error below.
+          }
+        }
+        throw new Error(`Model did not return valid JSON: ${text.slice(0, 160)}`);
+      }
+    }
+
+    async function askDecisionModel(snapshot) {
+      const systemPrompt = [
+        'You are the tower controller at Centennial Airport (KAPA).',
+        'Use only runway ids listed in snapshot.activeRunways.',
+        'Each runway has its own busy flag in snapshot.runways, so parallel runways may be used independently.',
+        'Exactly one aircraft may use a given runway at a time.',
+        'Prefer inbound traffic, then high-priority aircraft, then longest-waiting departures.',
+        'Use the aircraftId value from the snapshot, never the callsign.',
+        'Only issue CLEAR_TAXI for an aircraft that is PARKED with requestTaxi true.',
+        'Only issue CLEAR_TAKEOFF for an aircraft in HOLD SHORT when its runway is not busy.',
+        'Only issue CLEAR_APPROACH for an aircraft that is AIRBORNE with requestApproach true when the chosen runway is not busy.',
+        'Only issue CLEAR_CROSS for an aircraft with requestCrossing true and crossingRunway set, when that runway is not busy.',
+        'HOLD may include an aircraftId or omit it.',
+        'Use MONITOR when no clearance is appropriate.',
+        'Return ONLY compact JSON with keys: action, aircraftId, runway, reason.',
+        'Valid actions: CLEAR_TAXI, CLEAR_TAKEOFF, CLEAR_APPROACH, CLEAR_CROSS, HOLD, MONITOR.',
+        'Reason must be one concise sentence suitable for an on-screen log.',
+      ].join(' ');
+
+      const userPrompt = `Current traffic snapshot:\n${JSON.stringify(snapshot, null, 2)}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
+      try {
+        if (AI_CONFIG.mode === 'ollama') {
+          const response = await fetch(AI_CONFIG.ollama.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: AI_CONFIG.ollama.model,
+              stream: false,
+              format: 'json',
+              think: false,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+            }),
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
+          const data = await response.json();
+          return parseModelJson(data.message?.content);
+        }
+
+        if (AI_CONFIG.mode === 'openai') {
+          const response = await fetch(AI_CONFIG.openai.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${AI_CONFIG.openai.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: AI_CONFIG.openai.model,
+              temperature: 0.1,
+              response_format: { type: 'json_object' },
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+            }),
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`OpenAI-compatible HTTP ${response.status}`);
+          const data = await response.json();
+          return parseModelJson(data.choices?.[0]?.message?.content);
+        }
+
+        return null;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    function normalizeDecision(raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      let action = String(raw.action ?? '').toUpperCase().trim().replace(/[\s-]+/g, '_');
+      const aliases = {
+        TAXI: 'CLEAR_TAXI',
+        TAKEOFF: 'CLEAR_TAKEOFF',
+        APPROACH: 'CLEAR_APPROACH',
+        CLEARED_FOR_TAKEOFF: 'CLEAR_TAKEOFF',
+        CLEARED_FOR_APPROACH: 'CLEAR_APPROACH',
+        CLEARED_TO_TAXI: 'CLEAR_TAXI',
+        CROSS: 'CLEAR_CROSS',
+        CROSS_RUNWAY: 'CLEAR_CROSS',
+        CLEARED_TO_CROSS: 'CLEAR_CROSS',
+        HOLD_SHORT: 'HOLD',
+      };
+      action = aliases[action] ?? action;
+      const validActions = new Set([
+        'CLEAR_TAXI',
+        'CLEAR_TAKEOFF',
+        'CLEAR_APPROACH',
+        'CLEAR_CROSS',
+        'HOLD',
+        'MONITOR',
+      ]);
+      if (!validActions.has(action)) return null;
+
+      const rawId = String(raw.aircraftId ?? raw.aircraft_id ?? raw.callsign ?? raw.aircraft ?? '').trim().toUpperCase();
+      const aircraft = aircraftList.find(
+        (a) => a.id.toUpperCase() === rawId || a.callsign.toUpperCase() === rawId,
+      );
+      if (action !== 'MONITOR' && action !== 'HOLD' && !aircraft) return null;
+
+      const rawRunway = String(raw.runway ?? '').trim().toUpperCase();
+      const runway = WEATHER.activeRunways.includes(rawRunway)
+        ? rawRunway
+        : WEATHER.activeRunway;
+      const reason = String(raw.reason ?? 'Model decision').slice(0, 280);
+
+      return {
+        action,
+        aircraftId: aircraft?.id ?? null,
+        runway,
+        reason,
+        source: AI_CONFIG.mode,
+      };
+    }
+
+    function validateDecision(decision) {
+      if (!decision) return false;
+      if (decision.action === 'MONITOR' || decision.action === 'HOLD') return true;
+      const aircraft = aircraftList.find((a) => a.id === decision.aircraftId);
+      if (!aircraft) return false;
+      if (!WEATHER.activeRunways.includes(decision.runway)) return false;
+      if (decision.action === 'CLEAR_TAXI') {
+        return aircraft.state === 'PARKED' && aircraft.requestTaxi;
+      }
+      if (decision.action === 'CLEAR_TAKEOFF') {
+        return aircraft.state === 'HOLD_SHORT'
+          && !runwayOccupied(decision.runway);
+      }
+      if (decision.action === 'CLEAR_APPROACH') {
+        return aircraft.state === 'AIRBORNE'
+          && aircraft.requestApproach
+          && !runwayOccupied(decision.runway);
+      }
+      if (decision.action === 'CLEAR_CROSS') {
+        return (aircraft.state === 'TAXI_OUT' || aircraft.state === 'TAXI_IN')
+          && aircraft.crossingRequested
+          && aircraft.crossingRunwayId === decision.runway
+          && !runwayOccupied(decision.runway);
+      }
+      return false;
+    }
+
+    async function runDecisionLoop() {
+      if (decisionInFlight) return;
+      decisionInFlight = true;
+
+      try {
+        const snapshot = buildSnapshot();
+        let decision = null;
+        let fallbackReason = '';
+
+        if (AI_CONFIG.mode !== 'rules') {
+          try {
+            const raw = await askDecisionModel(snapshot);
+            decision = normalizeDecision(raw);
+            if (!validateDecision(decision)) {
+              console.warn('[TOWER] Rejected model decision:', { raw, normalized: decision, snapshot });
+              fallbackReason = 'Model returned an invalid or unavailable clearance. ';
+              decision = null;
+            }
+          } catch (error) {
+            fallbackReason = `Local model unavailable (${error.message}). `;
+            console.warn('[TOWER] LLM fallback:', error);
+          }
+        }
+
+        if (!decision) {
+          decision = ruleDecision(snapshot);
+          if (fallbackReason) {
+            decision.reason = fallbackReason + decision.reason;
+            decision.source = 'rules-fallback';
+          } else {
+            decision.source = 'rules';
+          }
+        }
+
+        applyDecision(decision);
+        publishDecision(decision);
+      } finally {
+        decisionInFlight = false;
+      }
+    }
+
+    function applyDecision(decision) {
+      const aircraft = aircraftList.find((a) => a.id === decision.aircraftId);
+
+      switch (decision.action) {
+        case 'CLEAR_TAXI': {
+          if (!aircraft) break;
+          aircraft.runwayId = decision.runway;
+          aircraft.requestTaxi = false;
+          aircraft.waitTime = 0;
+          aircraft.buildTaxiOutRoute(decision.runway);
+          aircraft.setState('TAXI_OUT');
+          break;
+        }
+        case 'CLEAR_TAKEOFF': {
+          if (!aircraft) break;
+          aircraft.runwayId = decision.runway;
+          aircraft.requestTakeoff = false;
+          aircraft.waitTime = 0;
+          aircraft.holdsRunway = true;
+          aircraft.buildLineupRoute(decision.runway);
+          aircraft.setState('LINEUP');
+          break;
+        }
+        case 'CLEAR_APPROACH': {
+          if (!aircraft) break;
+          aircraft.runwayId = decision.runway;
+          aircraft.requestApproach = false;
+          aircraft.patternHold = false;
+          aircraft.holdsRunway = true;
+          aircraft.buildApproachRoute(decision.runway);
+          aircraft.setState('APPROACH');
+          break;
+        }
+        case 'CLEAR_CROSS': {
+          if (!aircraft) break;
+          aircraft.crossingCleared = decision.runway;
+          aircraft.crossingActive = true;
+          aircraft.crossingRequested = false;
+          aircraft.waitTime = 0;
+          break;
+        }
+        case 'HOLD': {
+          if (!aircraft) break;
+          aircraft.holdReason = decision.reason;
+          if (aircraft.state === 'AIRBORNE') {
+            aircraft.patternHold = true;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    function publishDecision(decision) {
+      const controller = controllerForRunway(decision.runway ?? WEATHER.activeRunway);
+      decision.controller = controller.id;
+      decisionNumber += 1;
+      decisionHistory.push({
+        ...decision,
+        number: decisionNumber,
+        at: simulationTime,
+      });
+      if (decisionHistory.length > 40) decisionHistory.shift();
+
+      renderDecision(decision, decisionNumber);
+
+      const aircraft = aircraftList.find((a) => a.id === decision.aircraftId);
+      announceDecision(decision, aircraft);
+      const actionColors = {
+        CLEAR_TAXI: '#ffd166',
+        CLEAR_TAKEOFF: '#59e39d',
+        CLEAR_APPROACH: '#82b9ff',
+        CLEAR_CROSS: '#c5a3ff',
+        HOLD: '#ff8a5b',
+        MONITOR: '#8fa4b8',
+      };
+      console.log(
+        `%c[${controller.label.toUpperCase()} T+${formatSimTime(simulationTime)}] ${decision.action}${aircraft ? ' ' + aircraft.callsign : ''}%c ${decision.reason}`,
+        `color:${actionColors[decision.action] ?? '#fff'};font-weight:700`,
+        'color:#9eb1c3',
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 6. HUD
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const statAircraftEl = document.getElementById('stat-aircraft');
+    const statAirEl = document.getElementById('stat-air');
+    const statGroundEl = document.getElementById('stat-ground');
+    const statWindEl = document.getElementById('stat-wind');
+    const statTowerEl = document.getElementById('stat-tower');
+    const statRwyEl = document.getElementById('stat-rwy');
+    const statRwyStateEl = document.getElementById('stat-rwy-state');
+    const statHelosEl = document.getElementById('stat-helos');
+    const feedEl = document.getElementById('decision-feed');
+    const clearanceLineEl = document.getElementById('clearance-line');
+    const decisionCountEl = document.getElementById('decision-count');
+    const nextDecisionEl = document.getElementById('next-decision');
+    const countdownFillEl = document.getElementById('countdown-fill');
+    const modeBadgeEl = document.getElementById('mode-badge');
+    const decisionSubtitleEl = document.getElementById('decision-subtitle');
+    const pauseBtn = document.getElementById('btn-pause');
+    const orbitBtn = document.getElementById('btn-orbit');
+    const viewBtn = document.getElementById('btn-view');
+    const voiceBtn = document.getElementById('btn-voice');
+
+    let paused = false;
+    let timeScale = 1;
+    let hudTimer = 0;
+
+    const NATO_WORDS = {
+      A: 'Alfa', B: 'Bravo', C: 'Charlie', D: 'Delta', E: 'Echo',
+      F: 'Foxtrot', G: 'Golf', H: 'Hotel', I: 'India', J: 'Juliett',
+      K: 'Kilo', L: 'Lima', M: 'Mike', N: 'November', O: 'Oscar',
+      P: 'Papa', Q: 'Quebec', R: 'Romeo', S: 'Sierra', T: 'Tango',
+      U: 'Uniform', V: 'Victor', W: 'Whiskey', X: 'X-ray', Y: 'Yankee',
+      Z: 'Zulu',
+    };
+    const SPOKEN_DIGITS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'niner'];
+
+    let voiceEnabled = true;
+    let voiceUnlocked = false;
+    let voiceAudio = null;
+    let voiceEndResolve = null;
+    let voiceBusy = false;
+    let suppressVoiceToggle = false;
+    const speechQueue = [];
+
+    function speakCallsign(value) {
+      return [...String(value).toUpperCase()].map((character) => {
+        if (character >= '0' && character <= '9') return SPOKEN_DIGITS[Number(character)];
+        return NATO_WORDS[character] ?? character;
+      }).join(' ');
+    }
+
+    function speakRunway(value) {
+      return [...String(value)].map((character) => {
+        if (character === 'L') return 'left';
+        if (character === 'R') return 'right';
+        return SPOKEN_DIGITS[Number(character)] ?? character;
+      }).join(' ');
+    }
+
+    function buildTransmission(decision, aircraft, controller) {
+      const who = aircraft ? speakCallsign(aircraft.callsign) : 'Field';
+      const lead = controller.id === 'north' ? 'Tower North, ' : '';
+      const runway = `runway ${speakRunway(decision.runway ?? WEATHER.activeRunway)}`;
+      if (decision.action === 'CLEAR_TAXI') return `${who}, ${lead}taxi to ${runway}.`;
+      if (decision.action === 'CLEAR_TAKEOFF') return `${who}, ${lead}cleared for takeoff ${runway}.`;
+      if (decision.action === 'CLEAR_APPROACH') return `${who}, ${lead}cleared for approach ${runway}.`;
+      if (decision.action === 'CLEAR_CROSS') return `${who}, ${lead}cleared to cross ${runway}.`;
+      if (decision.action === 'HOLD') {
+        return aircraft
+          ? `${who}, ${lead}hold short of ${runway}.`
+          : `${lead || 'Tower, '}hold short of ${runway}.`;
+      }
+      return null;
+    }
+
+    function queueRadioChecks() {
+      speechQueue.unshift({ text: 'Tower North radio check.', controller: 'north' });
+      speechQueue.unshift({ text: 'Tower radio check.', controller: 'south' });
+      while (speechQueue.length > 6) speechQueue.pop();
+    }
+
+    function announceDecision(decision, aircraft) {
+      if (!voiceEnabled) return;
+      const controller = controllerForRunway(decision.runway ?? WEATHER.activeRunway);
+      const transmission = buildTransmission(decision, aircraft, controller);
+      if (!transmission) return;
+      speechQueue.push({ text: transmission, controller: controller.id });
+      if (speechQueue.length > 4) speechQueue.shift();
+      pumpSpeech();
+    }
+
+    function createSilentClip() {
+      const sampleRate = 8000;
+      const samples = 800;
+      const byteLength = 44 + samples * 2;
+      const buffer = new ArrayBuffer(byteLength);
+      const view = new DataView(buffer);
+      const writeText = (offset, text) => {
+        for (let index = 0; index < text.length; index += 1) {
+          view.setUint8(offset + index, text.charCodeAt(index));
+        }
+      };
+
+      writeText(0, 'RIFF');
+      view.setUint32(4, byteLength - 8, true);
+      writeText(8, 'WAVE');
+      writeText(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeText(36, 'data');
+      view.setUint32(40, samples * 2, true);
+
+      return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+    }
+
+    function getVoiceAudio() {
+      if (!voiceAudio) {
+        voiceAudio = new Audio();
+        voiceAudio.preload = 'auto';
+        voiceAudio.volume = 1;
+      }
+      return voiceAudio;
+    }
+
+    async function unlockVoice() {
+      if (!voiceEnabled) voiceEnabled = true;
+      const audio = getVoiceAudio();
+      const silentUrl = createSilentClip();
+
+      try {
+        audio.src = silentUrl;
+        audio.muted = true;
+        await audio.play();
+        audio.pause();
+        audio.currentTime = 0;
+      } catch (error) {
+        console.warn('[TOWER] Audio could not be enabled:', error);
+        voiceUnlocked = false;
+        audio.muted = false;
+        audio.removeAttribute('src');
+        audio.load();
+        URL.revokeObjectURL(silentUrl);
+        updateVoiceButton();
+        return;
+      }
+
+      audio.muted = false;
+      audio.removeAttribute('src');
+      audio.load();
+      URL.revokeObjectURL(silentUrl);
+      voiceUnlocked = true;
+      updateVoiceButton();
+      pumpSpeech();
+    }
+
+    function stopVoice() {
+      speechQueue.length = 0;
+      if (voiceEndResolve) {
+        const resolve = voiceEndResolve;
+        voiceEndResolve = null;
+        resolve();
+      }
+      if (voiceAudio) {
+        voiceAudio.pause();
+        voiceAudio.removeAttribute('src');
+        voiceAudio.load();
+      }
+    }
+
+    async function pumpSpeech() {
+      if (voiceBusy || !voiceEnabled || !voiceUnlocked || speechQueue.length === 0) return;
+      voiceBusy = true;
+      const entry = speechQueue.shift();
+      const text = typeof entry === 'string' ? entry : entry.text;
+      const voice = typeof entry === 'string' ? 'south' : (entry.controller ?? 'south');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      let audioUrl = null;
+
+      try {
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`TTS HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (!voiceEnabled || !voiceUnlocked) return;
+
+        const audio = getVoiceAudio();
+        audioUrl = URL.createObjectURL(blob);
+        audio.src = audioUrl;
+        audio.volume = 1;
+        await new Promise((resolve, reject) => {
+          const finish = () => {
+            if (voiceEndResolve === finish) voiceEndResolve = null;
+            resolve();
+          };
+          voiceEndResolve = finish;
+          audio.onended = finish;
+          audio.onerror = () => reject(new Error('Audio playback failed'));
+          audio.play().catch(reject);
+        });
+      } catch (error) {
+        console.warn('[TOWER] ATC voice unavailable:', error.message);
+        if (error.name === 'NotAllowedError') {
+          voiceUnlocked = false;
+          updateVoiceButton();
+        }
+      } finally {
+        clearTimeout(timeout);
+        voiceEndResolve = null;
+        if (voiceAudio) {
+          voiceAudio.onended = null;
+          voiceAudio.onerror = null;
+          if (audioUrl) {
+            voiceAudio.removeAttribute('src');
+            voiceAudio.load();
+          }
+        }
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        voiceBusy = false;
+        if (voiceEnabled && voiceUnlocked && speechQueue.length > 0) pumpSpeech();
+      }
+    }
+
+    function updateVoiceButton() {
+      voiceBtn.setAttribute('aria-pressed', String(voiceUnlocked && voiceEnabled));
+      voiceBtn.classList.toggle('active', voiceUnlocked && voiceEnabled);
+      if (!voiceUnlocked) {
+        voiceBtn.textContent = 'ATC voice: tap';
+        voiceBtn.title = 'Tap to enable Kokoro ATC audio';
+      } else if (voiceEnabled) {
+        voiceBtn.textContent = 'ATC voice on';
+        voiceBtn.title = 'Mute ATC voice';
+      } else {
+        voiceBtn.textContent = 'ATC voice off';
+        voiceBtn.title = 'Enable ATC voice';
+      }
+    }
+
+    function setupHUD() {
+      modeBadgeEl.textContent = AI_CONFIG.mode === 'rules' ? 'Rule engine' : AI_CONFIG.mode.toUpperCase();
+      modeBadgeEl.classList.toggle('llm', AI_CONFIG.mode !== 'rules');
+      decisionSubtitleEl.textContent =
+        AI_CONFIG.mode === 'rules'
+          ? `Rule-based sequencing every ${AI_CONFIG.interval}s`
+          : `${AI_CONFIG.mode} decision model · fallback enabled`;
+
+      statWindEl.innerHTML = `${String(WEATHER.windDirection).padStart(3, '0')}°<small>${WEATHER.windSpeed}kt</small>`;
+      statTowerEl.textContent = [...new Set(
+        WEATHER.activeRunways.map((id) => controllerForRunway(id).label),
+      )].join(' + ').toUpperCase();
+      statRwyEl.textContent = WEATHER.activeRunways.join('/');
+      updateVoiceButton();
+      updateHUD(true);
+    }
+
+    function renderDecision(decision, number) {
+      const colors = {
+        CLEAR_TAXI: '#ffd166',
+        CLEAR_TAKEOFF: '#59e39d',
+        CLEAR_APPROACH: '#82b9ff',
+        CLEAR_CROSS: '#c5a3ff',
+        HOLD: '#ff8a5b',
+        MONITOR: '#8fa4b8',
+      };
+      const aircraft = aircraftList.find((a) => a.id === decision.aircraftId);
+      const entry = document.createElement('article');
+      entry.className = 'log-entry';
+      entry.style.borderLeftColor = colors[decision.action] ?? '#8fa4b8';
+      entry.innerHTML = `
+        <div class="log-top">
+          <span class="log-time">T+${formatSimTime(simulationTime)}</span>
+          <span class="log-action" style="color:${colors[decision.action] ?? '#8fa4b8'}">${decision.action.replaceAll('_', ' ')}</span>
+          <span class="log-who">${aircraft ? aircraft.callsign : 'FIELD'}</span>
+        </div>
+        <p class="log-reason">${escapeHTML(decision.reason)}</p>
+      `;
+      feedEl.prepend(entry);
+      while (feedEl.children.length > 9) feedEl.lastElementChild.remove();
+      decisionCountEl.textContent = `#${String(number).padStart(3, '0')}`;
+    }
+
+    function updateHUD(force = false) {
+      const airborne = aircraftList.filter(
+        (a) => a.state === 'AIRBORNE' || a.state === 'APPROACH',
+      ).length;
+      statAircraftEl.textContent = aircraftList.length;
+      statAirEl.textContent = airborne;
+      statGroundEl.textContent = aircraftList.length - airborne;
+      const helosAirborne = helicopterList.filter((helicopter) => helicopter.pos.y > 2).length;
+      if (statHelosEl) {
+        statHelosEl.textContent =
+          `${helicopterList.length} · ${helosAirborne} AIR`;
+      }
+
+      const reservations = WEATHER.activeRunways
+        .map((runwayId) => [
+          runwayId,
+          reservationForRunway(runwayId) ?? crossingForRunway(runwayId),
+        ])
+        .filter(([, reservation]) => reservation);
+      statTowerEl.textContent = [...new Set(
+        WEATHER.activeRunways.map((runwayId) => controllerForRunway(runwayId).label),
+      )].join(' + ').toUpperCase();
+      statRwyEl.textContent = WEATHER.activeRunways.join('/');
+      if (reservations.length > 0) {
+        const first = reservations[0][1];
+        const crossing = reservations.find(([, reservation]) => reservation.crossingActive);
+        const prefix = first.state === 'APPROACH' ? 'INBOUND' : first.displayState;
+        statRwyStateEl.textContent = crossing
+          ? `CROSSING RWY ${crossing[0]} · ${crossing[1].callsign}`
+          : reservations.length > 1
+            ? `${reservations.length} RWYS ACTIVE`
+            : `${prefix} · ${first.callsign}`;
+        statRwyStateEl.style.color =
+          !crossing && reservations.some(([, reservation]) => reservation.state === 'APPROACH')
+            ? 'var(--blue)'
+            : 'var(--amber)';
+        clearanceLineEl.innerHTML = reservations
+          .map(([runwayId, reservation]) => (
+            `<strong>RWY ${runwayId}</strong> ${reservation.callsign} · ${reservation.crossingActive ? `CROSSING ${runwayId}` : reservation.displayState}`
+          ))
+          .join(' &nbsp; ');
+      } else {
+        statRwyStateEl.textContent = 'CLEAR';
+        statRwyStateEl.style.color = 'var(--green)';
+        const holds = aircraftList.filter((a) => a.state === 'HOLD_SHORT').length;
+        clearanceLineEl.innerHTML = holds
+          ? `<strong>RWY ${WEATHER.activeRunways.join('/')}</strong> clear · ${holds} aircraft holding short`
+          : `<strong>RWY ${WEATHER.activeRunways.join('/')}</strong> clear · monitoring`;
+      }
+
+      if (!paused) {
+        nextDecisionEl.textContent = decisionInFlight
+          ? 'Tower AI thinking…'
+          : `Next decision in ${Math.max(0, decisionTimer).toFixed(1)}s`;
+        countdownFillEl.style.width = `${THREE.MathUtils.clamp(
+          100 - (decisionTimer / AI_CONFIG.interval) * 100,
+          0,
+          100,
+        )}%`;
+      } else {
+        nextDecisionEl.textContent = 'Simulation paused';
+        countdownFillEl.style.width = '0%';
+      }
+
+      if (force) {
+        // no-op; forces a first paint after loading
+      }
+    }
+
+    function formatSimTime(seconds) {
+      const total = Math.max(0, Math.floor(seconds));
+      const mins = Math.floor(total / 60).toString().padStart(2, '0');
+      const secs = (total % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    }
+
+    function escapeHTML(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 7. CONTROLS + MAIN LOOP
+    // ═══════════════════════════════════════════════════════════════════════
+
+    pauseBtn.addEventListener('click', () => {
+      paused = !paused;
+      pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+      pauseBtn.classList.toggle('active', paused);
+      updateHUD(true);
+    });
+
+    document.querySelectorAll('.speed-btn').forEach((button) => {
+      button.addEventListener('click', () => {
+        timeScale = Number(button.dataset.speed);
+        document.querySelectorAll('.speed-btn').forEach((b) => {
+          b.classList.toggle('active', b === button);
+        });
+      });
+    });
+
+    orbitBtn.addEventListener('click', () => {
+      controls.autoRotate = !controls.autoRotate;
+      orbitBtn.classList.toggle('active', controls.autoRotate);
+    });
+
+    viewBtn.addEventListener('click', () => {
+      controls.autoRotate = false;
+      orbitBtn.classList.remove('active');
+      camera.position.copy(HOME_VIEW.position);
+      controls.target.copy(HOME_VIEW.target);
+      controls.update();
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+      if (voiceUnlocked || !voiceEnabled) return;
+      const viaVoiceButton = Boolean(event.target.closest('#btn-voice'));
+      if (viaVoiceButton) queueRadioChecks();
+      unlockVoice();
+      if (viaVoiceButton) suppressVoiceToggle = true;
+    }, true);
+
+    voiceBtn.addEventListener('click', async () => {
+      if (suppressVoiceToggle) {
+        suppressVoiceToggle = false;
+        return;
+      }
+      if (!voiceUnlocked) {
+        await unlockVoice();
+        return;
+      }
+      voiceEnabled = !voiceEnabled;
+      if (!voiceEnabled) {
+        stopVoice();
+      } else {
+        queueRadioChecks();
+        pumpSpeech();
+      }
+      updateVoiceButton();
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock(false);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const rawDelta = Math.min(clock.getDelta(), 0.075);
+      const dt = paused ? 0 : rawDelta * timeScale;
+
+      if (dt > 0) {
+        simulationTime += dt;
+
+        for (const aircraft of aircraftList) aircraft.update(dt);
+        for (const helicopter of helicopterList) helicopter.update(dt);
+        for (const vehicle of groundVehicles) vehicle.update(dt);
+
+        decisionTimer -= dt;
+        if (decisionTimer <= 0 && !decisionInFlight) {
+          decisionTimer = AI_CONFIG.interval;
+          runDecisionLoop();
+        }
+      }
+
+      hudTimer += rawDelta;
+      if (hudTimer > 0.12) {
+        hudTimer = 0;
+        updateHUD();
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    boot().catch((error) => {
+      console.error(error);
+      loadErrorEl.style.display = 'block';
+      loadErrorEl.textContent =
+        `Could not load the field.\n\n${error.message}\n\n` +
+        'If you opened this file directly, serve it over HTTP instead:\n' +
+        'python3 -m http.server 8080';
+      loadLabelEl.textContent = 'Load failed';
+      loadPctEl.textContent = '—';
+    });
+
+    // Handy for tinkering in the browser console.
+    window.airport = {
+      scene,
+      camera,
+      controls,
+      aircraft: aircraftList,
+      helicopters: helicopterList,
+      helipads: HELIPADS,
+      groundVehicles,
+      decisions: decisionHistory,
+      aiConfig: AI_CONFIG,
+      weather: WEATHER,
+      get startup() { return startupScenario; },
+      renderer,
+      decideNow: runDecisionLoop,
+      voice: {
+        get enabled() { return voiceEnabled; },
+        get unlocked() { return voiceUnlocked; },
+        get busy() { return voiceBusy; },
+        get playing() { return Boolean(voiceAudio && !voiceAudio.paused && !voiceAudio.ended); },
+        get queue() { return speechQueue.map((item) => (typeof item === 'string' ? item : item.text)); },
+        get controllers() { return Object.values(CONTROLLERS).map((controller) => controller.id); },
+        announce: (text, options = {}) => {
+          const controller = options.controller === 'north' ? 'north' : 'south';
+          speechQueue.push({ text: String(text), controller });
+          pumpSpeech();
+        },
+      },
+    };
+  </script>
+</body>
+</html>
